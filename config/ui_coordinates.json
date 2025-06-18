@@ -1,0 +1,16 @@
+{
+    "prompt_click_x": 996,
+    "prompt_click_y": 821,
+    "prompt_rect": {
+        "x": 521,
+        "y": 738,
+        "width": 950,
+        "height": 278,
+        "center_x": 996,
+        "center_y": 877
+    },
+    "generate_button_click_x": 1456,
+    "generate_button_click_y": 980,
+    "download_button_click_x": 925,
+    "download_button_click_y": 704
+}

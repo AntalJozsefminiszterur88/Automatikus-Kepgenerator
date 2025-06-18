@@ -1,0 +1,8 @@
+{
+    "app_name": "Automatikus Képgenerátor",
+    "version": "0.1.0",
+    "nordvpn_server_to_connect": "Singapore",
+    "preferred_browsers": ["opera", "chrome"],
+    "target_url": "https://labs.google/fx/tools/whisk",
+    "music_directory": "gui/assets/music/"
+}
