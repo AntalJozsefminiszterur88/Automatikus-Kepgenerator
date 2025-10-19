@@ -69,6 +69,7 @@ class OverlayWindow(QWidget):
         
         # Módosított shortcut_text
         shortcut_text = (
+            "Esc=Automatizálás Leállítása\n"
             "Globális: Num+=Play/Pause Zene\n" # Num0 eltávolítva
             "Num4=Előző | Num6=Következő | Num8=HangFel | Num2=HangLe"
         )
@@ -123,8 +124,10 @@ class OverlayWindow(QWidget):
         super().closeEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent): # QKeyEvent típuskényszerítés
-        # A globális listener miatt itt már nem kell kezelni a Num0-t,
-        # sem a zenevezérlőket, hacsak nem akarunk fókusz-specifikus viselkedést.
+        if event.key() == Qt.Key_Escape:
+            self.stop_requested_signal.emit()
+            event.accept()
+            return
         super().keyPressEvent(event)
 
 # Teszteléshez

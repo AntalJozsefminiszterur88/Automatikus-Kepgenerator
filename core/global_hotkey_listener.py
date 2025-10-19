@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Signal
 CONFIG = {
     # Numpad 0 -> Pause/Resume Automation (ELTÁVOLÍTVA)
     # "PAUSE_RESUME_KEY": keyboard.KeyCode.from_vk(96),
+    "STOP_AUTOMATION_KEY": keyboard.Key.esc,
     # Numpad + -> Play/Pause Music
     "PLAY_PAUSE_KEY": keyboard.KeyCode(char='+'),
     # Numpad 6 -> Next Track
@@ -27,6 +28,7 @@ CONFIG = {
 
 class HotkeyEmitter(QObject):
     # pause_resume_requested = Signal() # ELTÁVOLÍTVA
+    stop_automation_requested = Signal()
     music_play_pause_requested = Signal()
     music_next_track_requested = Signal()
     music_prev_track_requested = Signal()
@@ -71,6 +73,9 @@ class GlobalHotkeyListener:
             elif key.vk == CONFIG["VOLUME_DOWN_KEY_NUMPAD"].vk and CONFIG["VOLUME_DOWN_KEY_NUMPAD"].char is None and pressed_key_char is None:
                 action_to_emit = "music_volume_down_requested"
                 action_name_for_log = "VOLUME DOWN (Num2)"
+            elif key == CONFIG["STOP_AUTOMATION_KEY"]:
+                action_to_emit = "stop_automation_requested"
+                action_name_for_log = "STOP AUTOMATION (Esc)"
 
         if not action_to_emit and hasattr(key, 'char') and key.char is not None and \
            key.char == CONFIG["PLAY_PAUSE_KEY"].char:

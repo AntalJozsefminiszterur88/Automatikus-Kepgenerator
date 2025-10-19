@@ -396,12 +396,34 @@ class ProcessController(QObject):
     def _connect_hotkey_signals(self): 
         if self.hotkey_listener:
             # ... (a hotkey signalok összekötése változatlan)
+            self.hotkey_listener.emitter.stop_automation_requested.connect(self.handle_stop_automation_hotkey)
             self.hotkey_listener.emitter.music_play_pause_requested.connect(self.handle_music_play_pause)
             self.hotkey_listener.emitter.music_next_track_requested.connect(self.handle_music_next_track)
             self.hotkey_listener.emitter.music_prev_track_requested.connect(self.handle_music_prev_track)
             self.hotkey_listener.emitter.music_volume_up_requested.connect(self.handle_music_volume_up)
             self.hotkey_listener.emitter.music_volume_down_requested.connect(self.handle_music_volume_down)
             print("ProcessController: Globális billentyűparancs signálok összekötve.")
+
+    def _focus_main_window(self):
+        if not self.main_window:
+            return
+        if self.main_window.isMinimized():
+            self.main_window.showNormal()
+        self.main_window.raise_()
+        self.main_window.activateWindow()
+
+    @Slot()
+    def handle_stop_automation_hotkey(self):
+        if not self._is_automation_active:
+            self.update_gui_status("Nincs futó automatizálás leállításhoz (Esc).", False)
+            self._focus_main_window()
+            return
+
+        mode_text = "MANUÁLIS" if (self.worker and self.worker.manual_mode) else "AUTOMATIKUS"
+        self.update_gui_status(f"{mode_text} automatizálás leállítása (Esc)...", False)
+        self.stop_automation_process()
+        self._handle_hide_overlay_request()
+        self._focus_main_window()
 
     @Slot()
     def handle_music_play_pause(self): #
@@ -455,6 +477,7 @@ class ProcessController(QObject):
         self.update_gui_status(f"{mode_text} automatizálás befejeződött: {summary_message}", False)
         self._is_automation_active = False
         self._stop_requested_by_user = False
+        self._focus_main_window()
 
         if hasattr(self.gui_automator, 'close_browser'):
             self.gui_automator.close_browser()
@@ -478,14 +501,15 @@ class ProcessController(QObject):
 
 
     @Slot()
-    def _handle_show_overlay_request(self): 
+    def _handle_show_overlay_request(self):
         if OverlayWindow and self.main_window:
             if not self.overlay_window:
-                print("ProcessController DEBUG: Új OverlayWindow példány létrehozása (worker kérésére).") 
+                print("ProcessController DEBUG: Új OverlayWindow példány létrehozása (worker kérésére).")
                 self.overlay_window = OverlayWindow()
-            print("ProcessController DEBUG: OverlayWindow.show() hívása (worker kérésére).") 
+                self.overlay_window.stop_requested_signal.connect(self.handle_stop_automation_hotkey)
+            print("ProcessController DEBUG: OverlayWindow.show() hívása (worker kérésére).")
             self.overlay_window.show()
-            QApplication.processEvents() 
+            QApplication.processEvents()
 
     @Slot()
     def _handle_hide_overlay_request(self): 

@@ -3,7 +3,7 @@ import os
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QApplication,
                                QSizePolicy)
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QScreen, QIcon, QColor, QPalette
+from PySide6.QtGui import QScreen, QIcon, QColor, QPalette, QKeyEvent
 from .widgets.title_widget import TitleWidget
 from .widgets.prompt_input_widget import PromptInputWidget
 from .widgets.music_player_widget import MusicPlayerWidget
@@ -226,13 +226,20 @@ class MainWindow(QMainWindow):
             self.process_controller.update_setting("last_prompt_file_path", "")
 
     @Slot(str)
-    def update_status(self, message: str): 
+    def update_status(self, message: str):
         if hasattr(self, 'status_label'):
             self.status_label.setText(f"Állapot: {message}")
         else:
             print(f"[MainWindow KORAI STÁTUSZ - HIBA!]: {message}")
-        
-    def closeEvent(self, event): 
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key_Escape and self.process_controller:
+            self.process_controller.handle_stop_automation_hotkey()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event):
         print("Ablak bezárási esemény (MainWindow)...")
         
         if self.manual_coords_win and self.manual_coords_win.isVisible():
