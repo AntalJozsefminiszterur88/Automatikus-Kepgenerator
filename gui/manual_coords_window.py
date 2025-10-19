@@ -149,7 +149,8 @@ class ManualCoordsWindow(QDialog):
             {"label_text": "Eszköz megnyitása Gomb:", "id": "tool_open_click"},
             {"label_text": "Prompt mező helye:", "id": "prompt_click"},
             {"label_text": "Generálás gomb:", "id": "generate_button_click"},
-            {"label_text": "Letöltés gomb:", "id": "download_button_click"}
+            {"label_text": "Letöltés gomb:", "id": "download_button_click"},
+            {"label_text": "Generálási státusz pixel:", "id": "generation_status_pixel"}
         ]
 
         for i, definition in enumerate(coord_definitions):
