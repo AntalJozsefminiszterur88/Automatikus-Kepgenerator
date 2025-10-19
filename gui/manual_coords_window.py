@@ -2,9 +2,9 @@
 import os
 import json
 import time 
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QGridLayout, QApplication, QWidget,
-                               QTextEdit, QScrollArea, QMessageBox) # QMessageBox importálva
+                               QTextEdit, QScrollArea, QMessageBox, QCheckBox) # QMessageBox importálva
 from PySide6.QtCore import Qt, Signal, QObject, QThread, Slot 
 from PySide6.QtGui import QScreen
 
@@ -113,7 +113,7 @@ class ManualCoordsWindow(QDialog):
 
         self.coordinates_data = {}
         self.capture_thread = None
-        self.currently_capturing_id = None 
+        self.currently_capturing_id = None
 
         self._setup_ui()
         self.load_and_display_coords()
@@ -143,7 +143,7 @@ class ManualCoordsWindow(QDialog):
         self.grid_layout = QGridLayout()
         self.grid_layout.setSpacing(10)
 
-        self.coord_widgets = {} 
+        self.coord_widgets = {}
 
         coord_definitions = [
             {"label_text": "Eszköz megnyitása Gomb:", "id": "tool_open_click"},
@@ -173,10 +173,41 @@ class ManualCoordsWindow(QDialog):
             self.grid_layout.addWidget(capture_button, i, 2)
         
         self.main_layout.addLayout(self.grid_layout)
-        self.main_layout.addStretch() 
 
-        self.close_button = QPushButton("Bezárás és Mentés") 
-        self.close_button.clicked.connect(self.accept) 
+        toggle_container = QVBoxLayout()
+        toggle_container.setSpacing(6)
+
+        toggle_title = QLabel("<b>Automatizálási lépések beállításai:</b>")
+        toggle_title.setWordWrap(True)
+        toggle_container.addWidget(toggle_title)
+
+        self.start_browser_checkbox = QCheckBox(
+            "Induláskor automatikusan nyissa meg a böngészőt és töltse be a céloldalt"
+        )
+        self.start_browser_checkbox.toggled.connect(
+            lambda checked: self._on_toggle_changed("start_with_browser", checked)
+        )
+        toggle_container.addWidget(self.start_browser_checkbox)
+
+        self.perform_tool_open_checkbox = QCheckBox(
+            "Végezze el automatikusan az 'Eszköz megnyitása' gomb kattintását"
+        )
+        self.perform_tool_open_checkbox.toggled.connect(
+            lambda checked: self._on_toggle_changed("perform_tool_open_click", checked)
+        )
+        toggle_container.addWidget(self.perform_tool_open_checkbox)
+
+        note_label = QLabel(
+            "<i>Ha bármelyik lépést kikapcsolod, a folyamat azt a részt kihagyja és a következő művelettel folytatódik.</i>"
+        )
+        note_label.setWordWrap(True)
+        toggle_container.addWidget(note_label)
+
+        self.main_layout.addLayout(toggle_container)
+        self.main_layout.addStretch()
+
+        self.close_button = QPushButton("Bezárás és Mentés")
+        self.close_button.clicked.connect(self.accept)
         self.main_layout.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignRight)
 
     def load_and_display_coords(self):
@@ -192,6 +223,12 @@ class ManualCoordsWindow(QDialog):
             print(f"Hiba a manuális koordináták betöltése közben: {e}")
             self.coordinates_data = {}
 
+        # Alapértelmezett értékek biztosítása a manuális lépésekhez
+        if "start_with_browser" not in self.coordinates_data:
+            self.coordinates_data["start_with_browser"] = True
+        if "perform_tool_open_click" not in self.coordinates_data:
+            self.coordinates_data["perform_tool_open_click"] = True
+
         for coord_id, widgets in self.coord_widgets.items():
             key_x = f"{coord_id}_x"
             key_y = f"{coord_id}_y"
@@ -202,6 +239,15 @@ class ManualCoordsWindow(QDialog):
             else:
                 widgets["display_label"].setText("Nincs beállítva")
 
+        # Checkboxok frissítése a fájl alapján (jeleket ideiglenesen letiltva)
+        self.start_browser_checkbox.blockSignals(True)
+        self.start_browser_checkbox.setChecked(bool(self.coordinates_data.get("start_with_browser", True)))
+        self.start_browser_checkbox.blockSignals(False)
+
+        self.perform_tool_open_checkbox.blockSignals(True)
+        self.perform_tool_open_checkbox.setChecked(bool(self.coordinates_data.get("perform_tool_open_click", True)))
+        self.perform_tool_open_checkbox.blockSignals(False)
+
     def _save_coordinates_to_file(self):
         try:
             os.makedirs(self.config_dir, exist_ok=True)
@@ -210,6 +256,14 @@ class ManualCoordsWindow(QDialog):
             print(f"Manuális koordináták sikeresen elmentve ide: {self.ui_coords_file}")
         except Exception as e:
             print(f"Hiba a manuális koordináták mentése közben: {e}")
+
+    def _apply_toggle_states_to_data(self):
+        self.coordinates_data["start_with_browser"] = bool(self.start_browser_checkbox.isChecked())
+        self.coordinates_data["perform_tool_open_click"] = bool(self.perform_tool_open_checkbox.isChecked())
+
+    def _on_toggle_changed(self, key, checked):
+        self.coordinates_data[key] = bool(checked)
+        self._save_coordinates_to_file()
 
     def initiate_coordinate_capture(self, coord_id_to_capture):
         if not PYNPUT_AVAILABLE:
@@ -283,12 +337,19 @@ class ManualCoordsWindow(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         self.center_on_screen()
-        self.load_and_display_coords() 
+        self.load_and_display_coords()
 
     def closeEvent(self, event):
         if self.capture_thread and self.capture_thread.isRunning():
             print("Manuális ablak bezárása: Aktív koordináta rögzítő szál leállítása...")
-            self.capture_thread.stop_capture() 
-            if not self.capture_thread.wait(1000): 
+            self.capture_thread.stop_capture()
+            if not self.capture_thread.wait(1000):
                 print("Figyelmeztetés: A koordináta rögzítő szál nem állt le időben.")
+        self._apply_toggle_states_to_data()
+        self._save_coordinates_to_file()
         super().closeEvent(event)
+
+    def accept(self):
+        self._apply_toggle_states_to_data()
+        self._save_coordinates_to_file()
+        super().accept()
