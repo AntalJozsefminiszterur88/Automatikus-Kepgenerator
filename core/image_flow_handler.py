@@ -28,78 +28,207 @@ class ImageFlowHandler:
     def _check_for_stop_request(self):
         return self.automator._check_for_stop_request()
 
-    def monitor_generation_and_download(self):
-        print("ImageFlowHandler DEBUG: monitor_generation_and_download KEZDÉS.") 
-        if self._check_for_stop_request():
-            print("ImageFlowHandler DEBUG: Stop kérés a metódus elején.") 
-            return False
-        
-        self._notify_status("KÉP FELDOLGOZÁS: Generálás figyelése és letöltés indítása...")
-        
-        self._notify_status("Kép generálásának figyelése pixel alapján...")
-        initial_wait_after_generate_click_s = 2 
-        self._notify_status(f"Várakozás {initial_wait_after_generate_click_s}s a generálás tényleges megkezdésére...") 
-        time.sleep(initial_wait_after_generate_click_s) 
-        if self._check_for_stop_request():
-            print("ImageFlowHandler DEBUG: Stop kérés a kezdeti várakozás után.") 
-            return False
+    def _extract_generation_status_region(self):
+        region = self.automator.coordinates.get("generation_status_region")
+        if isinstance(region, dict):
+            try:
+                left = int(region.get("left"))
+                top = int(region.get("top"))
+                width = int(region.get("width"))
+                height = int(region.get("height"))
+            except (TypeError, ValueError):
+                return None
+            if width > 2 and height > 2:
+                return left, top, width, height
+        return None
 
+    def _determine_generation_status_pixel(self):
         pixel_x_to_watch = self.automator.coordinates.get("generation_status_pixel_x")
         pixel_y_to_watch = self.automator.coordinates.get("generation_status_pixel_y")
-        if pixel_x_to_watch is None or pixel_y_to_watch is None:
-            is_manual_run = self.automator.process_controller.worker.manual_mode if self.automator.process_controller and self.automator.process_controller.worker else False
-            if is_manual_run:
-                self._notify_status("HIBA (Manuális mód): A manuális koordinátafájl nem tartalmazta a 'generation_status_pixel' koordinátákat.", is_error=True)
-                return False
-            pixel_x_to_watch = 890
-            pixel_y_to_watch = 487
-            self._notify_status(f"FIGYELEM: A generálási státusz pixel koordinátái nem voltak betöltve. Fallback pozíció használata: X={pixel_x_to_watch}, Y={pixel_y_to_watch}", is_error=True)
-        expected_color_during_generation = (217, 217, 217)
-        max_wait_s_for_pixel_change = 45
-        check_interval_s = 0.5
+        if pixel_x_to_watch is not None and pixel_y_to_watch is not None:
+            try:
+                return int(pixel_x_to_watch), int(pixel_y_to_watch)
+            except (TypeError, ValueError):
+                pass
 
-        self._notify_status(f"Pixel ({pixel_x_to_watch},{pixel_y_to_watch}) színének figyelése. Várt szín generálás közben: {expected_color_during_generation}.")
-        start_pixel_watch_time = time.time() 
-        color_changed = False 
-        
-        pixel_watch_success = False 
-        while time.time() - start_pixel_watch_time < max_wait_s_for_pixel_change: 
+        is_manual_run = False
+        if self.automator.process_controller and self.automator.process_controller.worker:
+            is_manual_run = bool(self.automator.process_controller.worker.manual_mode)
+
+        if is_manual_run:
+            self._notify_status("HIBA (Manuális mód): A manuális koordinátafájl nem tartalmazta a 'generation_status' területet vagy pixelt.", is_error=True)
+            return None
+
+        fallback_x = 890
+        fallback_y = 487
+        self._notify_status(
+            f"FIGYELEM: A generálási státusz terület/pixel koordinátái nem voltak betöltve. Fallback pozíció használata: X={fallback_x}, Y={fallback_y}",
+            is_error=True
+        )
+        return fallback_x, fallback_y
+
+    def _watch_generation_by_region(self, region, stable_required_s=2.0, max_wait_s=60.0, check_interval_s=0.3):
+        left, top, width, height = region
+        self._notify_status(
+            f"Generálási státusz terület figyelése (X:{left}, Y:{top}, Szél:{width}, Mag:{height}). "
+            f"A folyamat akkor folytatódik, ha {stable_required_s}s-ig nincs mozgás a területen."
+        )
+        start_time = time.time()
+        last_change_time = start_time
+        last_frame_bytes = None
+        movement_detected = False
+        info_sent = False
+
+        while time.time() - start_time < max_wait_s:
             if self._check_for_stop_request():
-                self._notify_status("Pixel figyelés megszakítva felhasználói kéréssel.", is_error=True) 
-                print("ImageFlowHandler DEBUG: Pixel figyelés megszakítva stop kéréssel.") 
+                self._notify_status("Terület figyelése megszakítva felhasználói kéréssel.", is_error=True)
+                print("ImageFlowHandler DEBUG: Terület figyelés megszakítva stop kéréssel.")
+                return False
+
+            try:
+                screenshot = pyautogui.screenshot(region=(left, top, width, height))
+                current_frame = screenshot.tobytes()
+            except Exception as e_region:
+                self._notify_status(
+                    f"Hiba a generálási terület rögzítése közben (X:{left}, Y:{top}, Szél:{width}, Mag:{height}): {e_region}",
+                    is_error=True
+                )
+                time.sleep(check_interval_s * 2)
+                continue
+
+            now = time.time()
+            if last_frame_bytes is None:
+                last_frame_bytes = current_frame
+                last_change_time = now
+                continue
+
+            if current_frame != last_frame_bytes:
+                if not movement_detected:
+                    self._notify_status("Mozgás észlelve a generálási területen. Stabil állapot figyelése...")
+                movement_detected = True
+                info_sent = False
+                last_change_time = now
+                last_frame_bytes = current_frame
+            else:
+                if movement_detected:
+                    stable_time = now - last_change_time
+                    if stable_time >= stable_required_s:
+                        self._notify_status(
+                            f"Generálási terület stabil (mozgás nélkül {stable_time:.1f}s). Generálás befejeződött."
+                        )
+                        print("ImageFlowHandler DEBUG: Terület figyelés SIKERES (stabil állapot).")
+                        return True
+                    elif not info_sent and stable_required_s - stable_time <= 1.0:
+                        remaining = max(0.0, stable_required_s - stable_time)
+                        self._notify_status(
+                            f"Generálási terület stabilizálódik... {remaining:.1f}s még szükséges a megerősítéshez."
+                        )
+                        info_sent = True
+
+            time.sleep(check_interval_s)
+
+        if movement_detected:
+            self._notify_status(
+                f"Időtúllépés: A generálási terület nem maradt mozdulatlan {stable_required_s}s-ig a {max_wait_s}s-es limit alatt.",
+                is_error=True
+            )
+        else:
+            self._notify_status(
+                f"Időtúllépés: A generálási területen nem észleltünk mozgást {max_wait_s}s alatt.",
+                is_error=True
+            )
+        print("ImageFlowHandler DEBUG: Terület figyelés TIMEOUT.")
+        return False
+
+    def _watch_generation_by_pixel(self, pixel_x_to_watch, pixel_y_to_watch,
+                                   expected_color_during_generation=(217, 217, 217),
+                                   max_wait_s_for_pixel_change=45, check_interval_s=0.5):
+        self._notify_status(
+            f"Pixel ({pixel_x_to_watch},{pixel_y_to_watch}) színének figyelése. Várt szín generálás közben: {expected_color_during_generation}."
+        )
+        start_pixel_watch_time = time.time()
+
+        while time.time() - start_pixel_watch_time < max_wait_s_for_pixel_change:
+            if self._check_for_stop_request():
+                self._notify_status("Pixel figyelés megszakítva felhasználói kéréssel.", is_error=True)
+                print("ImageFlowHandler DEBUG: Pixel figyelés megszakítva stop kéréssel.")
                 return False
             try:
-                current_pixel_color = pyautogui.pixel(pixel_x_to_watch, pixel_y_to_watch) 
+                current_pixel_color = pyautogui.pixel(pixel_x_to_watch, pixel_y_to_watch)
                 if current_pixel_color[0] != expected_color_during_generation[0] or \
                    current_pixel_color[1] != expected_color_during_generation[1] or \
-                   current_pixel_color[2] != expected_color_during_generation[2]: 
-                    self._notify_status(f"Pixel színe megváltozott! (Új szín: {current_pixel_color}). Generálás befejeződött.") 
-                    color_changed = True 
-                    pixel_watch_success = True 
-                    break 
+                   current_pixel_color[2] != expected_color_during_generation[2]:
+                    self._notify_status(f"Pixel színe megváltozott! (Új szín: {current_pixel_color}). Generálás befejeződött.")
+                    print("ImageFlowHandler DEBUG: Pixel figyelés SIKERES (szín megváltozott).")
+                    return True
                 else:
-                    remaining_time = int(max_wait_s_for_pixel_change - (time.time() - start_pixel_watch_time)) 
-                    if remaining_time % 5 == 0 or remaining_time < 5 : 
-                        self._notify_status(f"Generálás még folyamatban (pixel színe: {current_pixel_color})... ({remaining_time}s hátra a timeout-ig)") 
+                    remaining_time = int(max_wait_s_for_pixel_change - (time.time() - start_pixel_watch_time))
+                    if remaining_time % 5 == 0 or remaining_time < 5:
+                        self._notify_status(f"Generálás még folyamatban (pixel színe: {current_pixel_color})... ({remaining_time}s hátra a timeout-ig)")
             except Exception as e_pixel:
-                self._notify_status(f"Hiba a pixel ({pixel_x_to_watch},{pixel_y_to_watch}) színének olvasása közben: {e_pixel}", is_error=True) 
-                time.sleep(check_interval_s * 2) 
-            time.sleep(check_interval_s) 
-        
-        if not pixel_watch_success: 
-            self._notify_status(f"Időtúllépés: A pixel színe nem változott meg {max_wait_s_for_pixel_change}s alatt.", is_error=True) 
-            print("ImageFlowHandler DEBUG: Pixel figyelés TIMEOUT.") 
-            return False
-        print("ImageFlowHandler DEBUG: Pixel figyelés SIKERES (szín megváltozott).") 
+                self._notify_status(f"Hiba a pixel ({pixel_x_to_watch},{pixel_y_to_watch}) színének olvasása közben: {e_pixel}", is_error=True)
+                time.sleep(check_interval_s * 2)
+            time.sleep(check_interval_s)
 
-        wait_after_color_change_s = 1 
-        self._notify_status(f"Generálás befejeződött (pixel szín alapján). Várakozás {wait_after_color_change_s}s a letöltés előtt...") 
-        time.sleep(wait_after_color_change_s) 
+        self._notify_status(
+            f"Időtúllépés: A pixel színe nem változott meg {max_wait_s_for_pixel_change}s alatt.",
+            is_error=True
+        )
+        print("ImageFlowHandler DEBUG: Pixel figyelés TIMEOUT.")
+        return False
+
+    def monitor_generation_and_download(self):
+        print("ImageFlowHandler DEBUG: monitor_generation_and_download KEZDÉS.")
         if self._check_for_stop_request():
-            print("ImageFlowHandler DEBUG: Stop kérés a színváltozás utáni várakozáskor.") 
+            print("ImageFlowHandler DEBUG: Stop kérés a metódus elején.")
             return False
-        
-        self._notify_status("Kép elkészült (pixel figyelés alapján). Letöltés következik...") 
+
+        self._notify_status("KÉP FELDOLGOZÁS: Generálás figyelése és letöltés indítása...")
+        region_to_watch = self._extract_generation_status_region()
+        if region_to_watch:
+            self._notify_status("Kép generálásának figyelése a kijelölt terület mozgása alapján...")
+        else:
+            self._notify_status("Kép generálásának figyelése pixel alapján...")
+        initial_wait_after_generate_click_s = 2
+        self._notify_status(f"Várakozás {initial_wait_after_generate_click_s}s a generálás tényleges megkezdésére...")
+        time.sleep(initial_wait_after_generate_click_s)
+        if self._check_for_stop_request():
+            print("ImageFlowHandler DEBUG: Stop kérés a kezdeti várakozás után.")
+            return False
+
+        completion_source_text = "pixel figyelés alapján"
+        wait_after_color_change_s = 1
+        max_wait_s_for_completion = 60
+
+        if region_to_watch:
+            region_success = self._watch_generation_by_region(region_to_watch, stable_required_s=2.0,
+                                                              max_wait_s=max_wait_s_for_completion,
+                                                              check_interval_s=0.3)
+            if not region_success:
+                return False
+            completion_source_text = "terület figyelése alapján"
+        else:
+            pixel_coords = self._determine_generation_status_pixel()
+            if not pixel_coords:
+                return False
+            pixel_x_to_watch, pixel_y_to_watch = pixel_coords
+            pixel_success = self._watch_generation_by_pixel(
+                pixel_x_to_watch,
+                pixel_y_to_watch,
+                expected_color_during_generation=(217, 217, 217),
+                max_wait_s_for_pixel_change=max_wait_s_for_completion,
+                check_interval_s=0.5
+            )
+            if not pixel_success:
+                return False
+
+        self._notify_status(f"Generálás befejeződött ({completion_source_text}). Várakozás {wait_after_color_change_s}s a letöltés előtt...")
+        time.sleep(wait_after_color_change_s)
+        if self._check_for_stop_request():
+            print("ImageFlowHandler DEBUG: Stop kérés a színváltozás utáni várakozáskor.")
+            return False
+
+        self._notify_status(f"Kép elkészült ({completion_source_text}). Letöltés következik...")
 
         download_button_x = None
         download_button_y = None
