@@ -12,5 +12,7 @@
     "generate_button_click_x": 1456,
     "generate_button_click_y": 980,
     "download_button_click_x": 925,
-    "download_button_click_y": 704
+    "download_button_click_y": 704,
+    "generation_status_pixel_x": 890,
+    "generation_status_pixel_y": 487
 }
