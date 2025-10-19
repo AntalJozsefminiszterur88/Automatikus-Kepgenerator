@@ -11,6 +11,7 @@ class PromptInputWidget(QWidget):
     start_manual_automation_requested = Signal()
     # *** ÚJ SIGNAL VÉGE ***
     vpn_autostart_changed = Signal(bool)
+    file_selected = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -166,63 +167,78 @@ class PromptInputWidget(QWidget):
 
     def select_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "Prompt fájl kiválasztása", "", "Text files (*.txt)")
-        if file_name:
-            self.selected_file_path = file_name
-            display_name = os.path.basename(file_name) 
-            self.file_path_label.setText(f"Kiválasztott fájl: {display_name}") 
-            print(f"Fájl kiválasztva: {self.selected_file_path}")
+        if file_name and self._apply_file_selection(file_name):
+            self.file_selected.emit(self.selected_file_path)
+        elif not file_name:
+            self._reset_file_selection()
 
-            num_lines = self._count_lines_in_file(self.selected_file_path)
+    def load_file_if_exists(self, file_path: str) -> bool:
+        """Külső hívás számára lehetővé teszi egy fájl betöltését, ha az létezik."""
+        return self._apply_file_selection(file_path)
 
-            self.start_line_spinbox.blockSignals(True)
-            self.end_line_spinbox.blockSignals(True)
+    def _apply_file_selection(self, file_path: str) -> bool:
+        """Belső segédfüggvény a fájl kiválasztás kezelése és a UI frissítéséhez."""
+        if not file_path or not os.path.exists(file_path):
+            print(f"A megadott fájl nem található vagy üres: {file_path}")
+            self._reset_file_selection()
+            return False
 
-            if num_lines > 0:
-                self.start_line_spinbox.setRange(1, num_lines)
-                self.end_line_spinbox.setRange(1, num_lines)
-                
-                current_start = self.start_line_spinbox.value()
-                current_end = self.end_line_spinbox.value()
-                new_start_value = min(max(1, current_start), num_lines)
-                new_end_value = current_end
-                if current_end == 10 and num_lines < 10: # Alapértelmezett 'end' érték, ha kisebb a fájl
-                    new_end_value = num_lines
-                else:
-                    new_end_value = min(max(1, current_end), num_lines)
-                
-                if new_end_value < new_start_value: # Biztosítja, hogy end >= start
-                    new_end_value = new_start_value
-                
-                self.start_line_spinbox.setValue(new_start_value)
-                self.end_line_spinbox.setValue(new_end_value)
-                
-                print(f"Fájl sorainak száma: {num_lines}.")
-            else: 
-                self.start_line_spinbox.setRange(1, 1)
-                self.end_line_spinbox.setRange(1, 1)
-                self.start_line_spinbox.setValue(1)
-                self.end_line_spinbox.setValue(1)
-                print("A fájl üres vagy hiba történt. Spinboxok alapértelmezettre (1-1).")
+        self.selected_file_path = file_path
+        display_name = os.path.basename(file_path)
+        self.file_path_label.setText(f"Kiválasztott fájl: {display_name}")
+        print(f"Fájl kiválasztva: {self.selected_file_path}")
 
-            self.start_line_spinbox.blockSignals(False)
-            self.end_line_spinbox.blockSignals(False)
-            
-            self.populate_prompt_list(self.selected_file_path) 
-            
-        else: 
-            self.selected_file_path = ""
-            self.file_path_label.setText("Prompt fájl (.txt): Még nincs kiválasztva")
-            self.prompt_list_widget.clear()
-            self.prompt_list_widget.addItem("Nincs prompt fájl betöltve.") 
-            
-            self.start_line_spinbox.blockSignals(True)
-            self.end_line_spinbox.blockSignals(True)
-            self.start_line_spinbox.setRange(1, 99) 
-            self.end_line_spinbox.setRange(1, 99)
+        num_lines = self._count_lines_in_file(self.selected_file_path)
+
+        self.start_line_spinbox.blockSignals(True)
+        self.end_line_spinbox.blockSignals(True)
+
+        if num_lines > 0:
+            self.start_line_spinbox.setRange(1, num_lines)
+            self.end_line_spinbox.setRange(1, num_lines)
+
+            current_start = self.start_line_spinbox.value()
+            current_end = self.end_line_spinbox.value()
+            new_start_value = min(max(1, current_start), num_lines)
+            if current_end == 10 and num_lines < 10: # Alapértelmezett 'end' érték, ha kisebb a fájl
+                new_end_value = num_lines
+            else:
+                new_end_value = min(max(1, current_end), num_lines)
+
+            if new_end_value < new_start_value: # Biztosítja, hogy end >= start
+                new_end_value = new_start_value
+
+            self.start_line_spinbox.setValue(new_start_value)
+            self.end_line_spinbox.setValue(new_end_value)
+
+            print(f"Fájl sorainak száma: {num_lines}.")
+        else:
+            self.start_line_spinbox.setRange(1, 1)
+            self.end_line_spinbox.setRange(1, 1)
             self.start_line_spinbox.setValue(1)
-            self.end_line_spinbox.setValue(10)
-            self.start_line_spinbox.blockSignals(False)
-            self.end_line_spinbox.blockSignals(False)
+            self.end_line_spinbox.setValue(1)
+            print("A fájl üres vagy hiba történt. Spinboxok alapértelmezettre (1-1).")
+
+        self.start_line_spinbox.blockSignals(False)
+        self.end_line_spinbox.blockSignals(False)
+
+        self.populate_prompt_list(self.selected_file_path)
+        return True
+
+    def _reset_file_selection(self):
+        self.selected_file_path = ""
+        self.file_path_label.setText("Prompt fájl (.txt): Még nincs kiválasztva")
+        self.prompt_list_widget.clear()
+        self.prompt_list_widget.addItem("Nincs prompt fájl betöltve.")
+
+        self.start_line_spinbox.blockSignals(True)
+        self.end_line_spinbox.blockSignals(True)
+        self.start_line_spinbox.setRange(1, 99)
+        self.end_line_spinbox.setRange(1, 99)
+        self.start_line_spinbox.setValue(1)
+        self.end_line_spinbox.setValue(10)
+        self.start_line_spinbox.blockSignals(False)
+        self.end_line_spinbox.blockSignals(False)
 
     def _ensure_value_constraints(self):
         sender_widget = self.sender()

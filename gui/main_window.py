@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         initial_vpn_state = self.process_controller.get_setting("launch_vpn_on_startup", True)
         if hasattr(self.prompt_input_widget, 'set_vpn_toggle_state'):
             self.prompt_input_widget.set_vpn_toggle_state(initial_vpn_state)
+        self._restore_last_prompt_file()
         self._setup_layout()
         self._connect_signals()
 
@@ -115,6 +116,24 @@ class MainWindow(QMainWindow):
 
         if hasattr(self.prompt_input_widget, 'vpn_autostart_changed'):
             self.prompt_input_widget.vpn_autostart_changed.connect(self.handle_vpn_autostart_changed)
+
+        if hasattr(self.prompt_input_widget, 'file_selected'):
+            self.prompt_input_widget.file_selected.connect(self.handle_prompt_file_selected)
+
+    def _restore_last_prompt_file(self):
+        if not self.process_controller or not hasattr(self.process_controller, 'get_setting'):
+            return
+
+        last_file_path = self.process_controller.get_setting("last_prompt_file_path", "")
+        if not last_file_path:
+            return
+
+        if os.path.exists(last_file_path) and hasattr(self.prompt_input_widget, 'load_file_if_exists'):
+            if self.prompt_input_widget.load_file_if_exists(last_file_path):
+                print(f"Korábban használt prompt fájl visszaállítva: {last_file_path}")
+        else:
+            print(f"Korábban mentett prompt fájl nem található: {last_file_path}")
+            self.process_controller.update_setting("last_prompt_file_path", "")
 
     @Slot()
     def handle_manual_mode_requested(self):
@@ -197,6 +216,16 @@ class MainWindow(QMainWindow):
             self.process_controller.update_setting("launch_vpn_on_startup", enabled)
 
     @Slot(str)
+    def handle_prompt_file_selected(self, file_path: str):
+        if not self.process_controller or not hasattr(self.process_controller, 'update_setting'):
+            return
+
+        if file_path and os.path.exists(file_path):
+            self.process_controller.update_setting("last_prompt_file_path", file_path)
+        else:
+            self.process_controller.update_setting("last_prompt_file_path", "")
+
+    @Slot(str)
     def update_status(self, message: str): 
         if hasattr(self, 'status_label'):
             self.status_label.setText(f"Állapot: {message}")
@@ -212,6 +241,16 @@ class MainWindow(QMainWindow):
 
         if self.process_controller and hasattr(self.process_controller, 'cleanup_on_exit'):
             self.process_controller.cleanup_on_exit()
+
+        if self.process_controller and hasattr(self.process_controller, 'update_setting'):
+            current_file_path = ""
+            if hasattr(self.prompt_input_widget, 'get_file_path'):
+                current_file_path = self.prompt_input_widget.get_file_path()
+
+            if current_file_path and os.path.exists(current_file_path):
+                self.process_controller.update_setting("last_prompt_file_path", current_file_path)
+            else:
+                self.process_controller.update_setting("last_prompt_file_path", "")
 
         if hasattr(self, 'music_player_widget') and self.music_player_widget and \
            hasattr(self.music_player_widget, 'player') and \

@@ -5,5 +5,6 @@
     "preferred_browsers": ["opera", "chrome"],
     "target_url": "https://labs.google/fx/tools/whisk",
     "music_directory": "gui/assets/music/",
-    "launch_vpn_on_startup": true
+    "launch_vpn_on_startup": true,
+    "last_prompt_file_path": ""
 }
