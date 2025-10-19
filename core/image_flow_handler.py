@@ -44,13 +44,21 @@ class ImageFlowHandler:
             print("ImageFlowHandler DEBUG: Stop kérés a kezdeti várakozás után.") 
             return False
 
-        pixel_x_to_watch = 890 
-        pixel_y_to_watch = 487 
-        expected_color_during_generation = (217, 217, 217) 
-        max_wait_s_for_pixel_change = 45 
-        check_interval_s = 0.5 
+        pixel_x_to_watch = self.automator.coordinates.get("generation_status_pixel_x")
+        pixel_y_to_watch = self.automator.coordinates.get("generation_status_pixel_y")
+        if pixel_x_to_watch is None or pixel_y_to_watch is None:
+            is_manual_run = self.automator.process_controller.worker.manual_mode if self.automator.process_controller and self.automator.process_controller.worker else False
+            if is_manual_run:
+                self._notify_status("HIBA (Manuális mód): A manuális koordinátafájl nem tartalmazta a 'generation_status_pixel' koordinátákat.", is_error=True)
+                return False
+            pixel_x_to_watch = 890
+            pixel_y_to_watch = 487
+            self._notify_status(f"FIGYELEM: A generálási státusz pixel koordinátái nem voltak betöltve. Fallback pozíció használata: X={pixel_x_to_watch}, Y={pixel_y_to_watch}", is_error=True)
+        expected_color_during_generation = (217, 217, 217)
+        max_wait_s_for_pixel_change = 45
+        check_interval_s = 0.5
 
-        self._notify_status(f"Pixel ({pixel_x_to_watch},{pixel_y_to_watch}) színének figyelése. Várt szín generálás közben: {expected_color_during_generation}.") 
+        self._notify_status(f"Pixel ({pixel_x_to_watch},{pixel_y_to_watch}) színének figyelése. Várt szín generálás közben: {expected_color_during_generation}.")
         start_pixel_watch_time = time.time() 
         color_changed = False 
         
