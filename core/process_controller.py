@@ -82,8 +82,12 @@ class AutomationWorker(QObject):
         if hasattr(self.pc_ref.gui_automator, 'stop_requested'): self.pc_ref.gui_automator.stop_requested = False
         if hasattr(self.pc_ref.gui_automator, 'page_is_prepared'): self.pc_ref.gui_automator.page_is_prepared = False
 
-        self.status_updated.emit(f"Worker ({mode_text}): Folyamat indítása a workerben...", False) 
-        print(f"AutomationWorker DEBUG ({mode_text}): Státusz üzenet elküldve: 'Folyamat indítása a workerben...'") 
+        # Gondoskodunk róla, hogy a felhasználó azonnal lássa az overlay ablakot,
+        # még azelőtt, hogy a böngésző vagy bármely hosszabb művelet elindulna.
+        self.show_overlay_requested.emit()
+
+        self.status_updated.emit(f"Worker ({mode_text}): Folyamat indítása a workerben...", False)
+        print(f"AutomationWorker DEBUG ({mode_text}): Státusz üzenet elküldve: 'Folyamat indítása a workerben...'")
         
         prompt_handler = self.pc_ref.prompt_handler
         gui_automator = self.pc_ref.gui_automator
