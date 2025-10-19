@@ -124,6 +124,14 @@ class PageInitializer:
         Elvégzi az oldal kezdeti előkészítését: a megfelelő gombra ("ESZKÖZ MEGNYITÁSA" vagy "ENTER TOOL")
         kattint, vár az oldal betöltődésére, majd aktiválja a prompt mezőt.
         """
+        is_manual_run = False
+        if self.automator.process_controller and self.automator.process_controller.worker:
+            is_manual_run = bool(getattr(self.automator.process_controller.worker, 'manual_mode', False))
+
+        if is_manual_run and not bool(self.automator.coordinates.get("perform_tool_open_click", True)):
+            self._notify_status("Manuális mód: 'Eszköz megnyitása' lépés kihagyva a beállítás alapján.")
+            return True
+
         if self._check_for_stop_request(): return False
 
         self._notify_status("OLDAL ELŐKÉSZÍTÉS: Kezdeti műveletek indítása...")

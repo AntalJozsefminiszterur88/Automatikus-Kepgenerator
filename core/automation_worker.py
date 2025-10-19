@@ -113,11 +113,21 @@ class AutomationWorker(QObject):
             # VPN és Böngésző szakaszok
             # Itt a _check_pause_and_stop hívások maradnak, csak a "pause" részük nem aktív már.
             # Példa: browser_manager.open_target_url() hívása utáni várakozás
+            manual_settings = gui_automator.coordinates if self.manual_mode else {}
+            browser_launch_enabled = True
+            if self.manual_mode:
+                browser_launch_enabled = bool(manual_settings.get("start_with_browser", True))
+
             browser_opened_successfully = False # Ezt a változót a böngészőkezelő logikájának kell beállítania
-            if browser_manager: # Feltételezve, hogy a browser_manager a pc_ref része
+            if browser_manager and browser_launch_enabled: # Feltételezve, hogy a browser_manager a pc_ref része
                  if browser_manager.open_target_url():
                     browser_opened_successfully = True
-            
+            elif browser_manager and not browser_launch_enabled:
+                self.status_updated.emit(
+                    f"Worker ({mode_text}): Böngésző megnyitása kihagyva (manuális beállítás).",
+                    False
+                )
+
             if browser_opened_successfully:
                 self.show_overlay_requested.emit()
                 wait_s = 15 # Ez csak egy példa várakozási idő
