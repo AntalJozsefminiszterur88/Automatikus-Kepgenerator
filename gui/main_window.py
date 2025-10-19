@@ -41,8 +41,11 @@ class MainWindow(QMainWindow):
 
         self._create_widgets()
         self.process_controller = ProcessController(self)
+        initial_vpn_state = self.process_controller.get_setting("launch_vpn_on_startup", True)
+        if hasattr(self.prompt_input_widget, 'set_vpn_toggle_state'):
+            self.prompt_input_widget.set_vpn_toggle_state(initial_vpn_state)
         self._setup_layout()
-        self._connect_signals() 
+        self._connect_signals()
 
         self.center_on_screen()
         print("MainWindow inicializálva és középre igazítva.")
@@ -85,8 +88,11 @@ class MainWindow(QMainWindow):
             self.prompt_input_widget.start_manual_automation_requested.connect(self.handle_start_manual_process)
         # *** ÚJ SIGNAL ÖSSZEKÖTÉSE VÉGE ***
 
-        if hasattr(self.prompt_input_widget, 'manual_mode_button'): 
+        if hasattr(self.prompt_input_widget, 'manual_mode_button'):
             self.prompt_input_widget.manual_mode_requested.connect(self.handle_manual_mode_requested)
+
+        if hasattr(self.prompt_input_widget, 'vpn_autostart_changed'):
+            self.prompt_input_widget.vpn_autostart_changed.connect(self.handle_vpn_autostart_changed)
 
     @Slot()
     def handle_manual_mode_requested(self):
@@ -150,7 +156,7 @@ class MainWindow(QMainWindow):
             print(f"Hiba: ProcessController nincs inicializálva a {mode_text} handle_start_process-ben.")
 
     @Slot()
-    def handle_start_process(self): 
+    def handle_start_process(self):
         print("MainWindow: handle_start_process (automatikus) hívva.")
         self._start_automation_common(manual_mode=False)
 
@@ -160,6 +166,13 @@ class MainWindow(QMainWindow):
         print("MainWindow: handle_start_manual_process hívva.")
         self._start_automation_common(manual_mode=True)
     # *** ÚJ KEZELŐFÜGGVÉNY VÉGE ***
+
+    @Slot(bool)
+    def handle_vpn_autostart_changed(self, enabled: bool):
+        state_text = "BE" if enabled else "KI"
+        self.update_status(f"NordVPN automatikus indítás: {state_text}")
+        if self.process_controller and hasattr(self.process_controller, 'update_setting'):
+            self.process_controller.update_setting("launch_vpn_on_startup", enabled)
 
     @Slot(str)
     def update_status(self, message: str): 

@@ -2,6 +2,7 @@
 import time
 import traceback
 import os
+import json
 
 from .prompt_handler import PromptHandler
 from .pyautogui_automator import PyAutoGuiAutomator
@@ -138,22 +139,29 @@ class AutomationWorker(QObject):
 
             # --- VPN Logika ---
             skip_vpn_steps = False
-            target_vpn_server_group = "Singapore" 
-            target_vpn_country_code = "SG"
-            
-            print(f"AutomationWorker DEBUG ({mode_text}): [7] IP ellenőrzés VPN előtt...") 
-            self.status_updated.emit(f"Worker ({mode_text}): IP ellenőrzés VPN előtt...", False)
-            current_ip_info_before_vpn = get_public_ip_info() 
-            if current_ip_info_before_vpn:
-                if current_ip_info_before_vpn.get('country_code') == target_vpn_country_code.upper():
-                    skip_vpn_steps = True
-                    self.status_updated.emit(f"Worker ({mode_text}): Már a célországban ({target_vpn_country_code}). VPN kihagyva.", False)
-            print(f"AutomationWorker DEBUG ({mode_text}): [8] IP ellenőrzés kész, skip_vpn_steps: {skip_vpn_steps}.") 
-            
-            self._check_pause_and_stop() 
+            target_vpn_server_group = self.pc_ref.get_setting("vpn_target_server_group", "Singapore")
+            target_vpn_country_code = self.pc_ref.get_setting("vpn_target_country_code", "SG")
+            vpn_autostart_enabled = self.pc_ref.get_setting("launch_vpn_on_startup", True)
+
+            if not vpn_autostart_enabled:
+                skip_vpn_steps = True
+                print(f"AutomationWorker DEBUG ({mode_text}): [7] VPN indítás kihagyva (kapcsoló KI).")
+                self.status_updated.emit(f"Worker ({mode_text}): NordVPN indítás kihagyva (kapcsoló KI).", False)
 
             if not skip_vpn_steps:
-                print(f"AutomationWorker DEBUG ({mode_text}): [9] VPN csatlakozás kísérlet...") 
+                print(f"AutomationWorker DEBUG ({mode_text}): [7] IP ellenőrzés VPN előtt...")
+                self.status_updated.emit(f"Worker ({mode_text}): IP ellenőrzés VPN előtt...", False)
+                current_ip_info_before_vpn = get_public_ip_info()
+                if current_ip_info_before_vpn:
+                    if current_ip_info_before_vpn.get('country_code') == target_vpn_country_code.upper():
+                        skip_vpn_steps = True
+                        self.status_updated.emit(f"Worker ({mode_text}): Már a célországban ({target_vpn_country_code}). VPN kihagyva.", False)
+                print(f"AutomationWorker DEBUG ({mode_text}): [8] IP ellenőrzés kész, skip_vpn_steps: {skip_vpn_steps}.")
+
+            self._check_pause_and_stop()
+
+            if not skip_vpn_steps:
+                print(f"AutomationWorker DEBUG ({mode_text}): [9] VPN csatlakozás kísérlet...")
                 if vpn_manager and vpn_manager.nordvpn_executable_path:
                     self.status_updated.emit(f"Worker ({mode_text}): VPN kapcsolat ({target_vpn_server_group})...", False)
                     if not vpn_manager.connect_to_server(target_vpn_server_group, target_vpn_country_code):
@@ -319,11 +327,13 @@ class ProcessController(QObject):
         print(f"ProcessController inicializálva. Letöltési mappa: {self.downloads_dir}")
 
     def _load_settings(self):
-        settings_file = os.path.join(self.project_root_path, "config", "settings.json")
+        settings_file = self._settings_file_path()
+        os.makedirs(os.path.dirname(settings_file), exist_ok=True)
         default_settings = {
             "pause_between_prompts_s": 2,
             "vpn_target_server_group": "Singapore",
-            "vpn_target_country_code": "SG"
+            "vpn_target_country_code": "SG",
+            "launch_vpn_on_startup": True
             # Ide jöhetnek további alapértelmezett értékek
         }
         try:
@@ -341,6 +351,23 @@ class ProcessController(QObject):
 
     def get_setting(self, key, default_value=None):
         return self.settings.get(key, default_value)
+
+    def update_setting(self, key, value, persist=True):
+        self.settings[key] = value
+        if persist:
+            self._save_settings()
+
+    def _settings_file_path(self):
+        return os.path.join(self.project_root_path, "config", "settings.json")
+
+    def _save_settings(self):
+        settings_file = self._settings_file_path()
+        try:
+            with open(settings_file, 'w', encoding='utf-8') as f:
+                json.dump(self.settings, f, ensure_ascii=False, indent=4)
+            print(f"Beállítások elmentve ide: {settings_file}")
+        except Exception as e:
+            print(f"Hiba a beállítások mentésekor: {e}")
 
     def _connect_hotkey_signals(self): 
         if self.hotkey_listener:

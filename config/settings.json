@@ -4,5 +4,6 @@
     "nordvpn_server_to_connect": "Singapore",
     "preferred_browsers": ["opera", "chrome"],
     "target_url": "https://labs.google/fx/tools/whisk",
-    "music_directory": "gui/assets/music/"
+    "music_directory": "gui/assets/music/",
+    "launch_vpn_on_startup": true
 }

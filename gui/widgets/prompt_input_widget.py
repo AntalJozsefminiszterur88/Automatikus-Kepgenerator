@@ -10,6 +10,7 @@ class PromptInputWidget(QWidget):
     # *** ÚJ SIGNAL ***
     start_manual_automation_requested = Signal()
     # *** ÚJ SIGNAL VÉGE ***
+    vpn_autostart_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -80,19 +81,55 @@ class PromptInputWidget(QWidget):
         self.manual_mode_button.setStyleSheet("QPushButton { background-color: #4682B4; color: white; padding: 10px; font-size: 16px; border-radius: 5px; min-height: 40px; }")
         self.manual_mode_button.clicked.connect(self.manual_mode_requested.emit)
 
+        self.vpn_toggle_button = QPushButton()
+        self.vpn_toggle_button.setCheckable(True)
+        self.vpn_toggle_button.clicked.connect(self._on_vpn_toggle_clicked)
+        self.set_vpn_toggle_state(True)
+
         buttons_layout = QHBoxLayout()
-        buttons_layout.addStretch() 
+        buttons_layout.addStretch()
         buttons_layout.addWidget(self.start_button)
         # *** ÚJ GOMB HOZZÁADÁSA AZ ELRENDEZÉSHEZ ***
         buttons_layout.addWidget(self.start_manual_button)
         # *** ÚJ GOMB HOZZÁADÁSA VÉGE ***
-        buttons_layout.addWidget(self.manual_mode_button) 
-        buttons_layout.addStretch() 
+        buttons_layout.addWidget(self.manual_mode_button)
+        buttons_layout.addWidget(self.vpn_toggle_button)
+        buttons_layout.addStretch()
         
         self.layout.addLayout(buttons_layout)
 
         self.setLayout(self.layout)
         print("PromptInputWidget inicializálva (új manuális indítás gombbal).")
+
+    def _apply_vpn_toggle_style(self, enabled: bool):
+        if enabled:
+            self.vpn_toggle_button.setText("NordVPN: BE")
+            self.vpn_toggle_button.setStyleSheet(
+                "QPushButton { background-color: #4CAF50; color: white; padding: 10px; font-size: 14px; border-radius: 18px; min-height: 36px; min-width: 130px; }"
+            )
+        else:
+            self.vpn_toggle_button.setText("NordVPN: KI")
+            self.vpn_toggle_button.setStyleSheet(
+                "QPushButton { background-color: #555555; color: white; padding: 10px; font-size: 14px; border-radius: 18px; min-height: 36px; min-width: 130px; }"
+            )
+
+    def _on_vpn_toggle_clicked(self):
+        current_state = self.vpn_toggle_button.isChecked()
+        self._apply_vpn_toggle_style(current_state)
+        self.vpn_autostart_changed.emit(current_state)
+
+    def set_vpn_toggle_state(self, enabled: bool):
+        if not hasattr(self, 'vpn_toggle_button'):
+            return
+        previous_block_state = self.vpn_toggle_button.blockSignals(True)
+        self.vpn_toggle_button.setChecked(enabled)
+        self._apply_vpn_toggle_style(enabled)
+        self.vpn_toggle_button.blockSignals(previous_block_state)
+
+    def get_vpn_toggle_state(self) -> bool:
+        if not hasattr(self, 'vpn_toggle_button'):
+            return True
+        return self.vpn_toggle_button.isChecked()
 
     def _count_lines_in_file(self, file_path):
         try:
