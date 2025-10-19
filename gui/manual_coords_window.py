@@ -5,8 +5,8 @@ import time
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                                QPushButton, QGridLayout, QApplication, QWidget,
                                QTextEdit, QScrollArea, QMessageBox, QCheckBox) # QMessageBox importálva
-from PySide6.QtCore import Qt, Signal, QObject, QThread, Slot 
-from PySide6.QtGui import QScreen
+from PySide6.QtCore import Qt, Signal, QObject, QThread, Slot, QRect
+from PySide6.QtGui import QScreen, QPainter, QColor, QPen
 
 try:
     from pynput import keyboard
@@ -16,6 +16,96 @@ except ImportError:
     PYNPUT_AVAILABLE = False
     print("FIGYELEM: A 'pynput' és/vagy 'pyautogui' könyvtár nincs telepítve. A manuális koordináta rögzítés CTRL gombbal nem lesz elérhető.")
     print("Telepítés: pip install pynput pyautogui")
+
+
+# --- ÚJ SEGÉDOSZTÁLY A TERÜLET KIJELÖLÉSÉHEZ ---
+class ScreenRegionSelector(QWidget):
+    region_selected = Signal(int, int, int, int)  # left, top, width, height
+    selection_canceled = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowStaysOnTopHint |
+            Qt.FramelessWindowHint |
+            Qt.Tool
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setCursor(Qt.CrossCursor)
+        self._start_point_global = None
+        self._current_point_global = None
+        self._selecting = False
+
+        # Teljes asztalterület lefedése (több monitor esetén is)
+        desktop_rect = None
+        for screen in QApplication.screens():
+            if desktop_rect is None:
+                desktop_rect = QRect(screen.geometry())
+            else:
+                desktop_rect = desktop_rect.united(screen.geometry())
+        if desktop_rect:
+            self.setGeometry(desktop_rect)
+
+    def _current_selection_rect(self):
+        if not self._start_point_global or not self._current_point_global:
+            return QRect()
+        start_local = self.mapFromGlobal(self._start_point_global)
+        current_local = self.mapFromGlobal(self._current_point_global)
+        rect = QRect(start_local, current_local).normalized()
+        return rect
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._start_point_global = event.globalPosition().toPoint()
+            self._current_point_global = self._start_point_global
+            self._selecting = True
+            self.update()
+        elif event.button() == Qt.RightButton:
+            self.selection_canceled.emit()
+            self.close()
+
+    def mouseMoveEvent(self, event):
+        if self._selecting:
+            self._current_point_global = event.globalPosition().toPoint()
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._selecting:
+            self._current_point_global = event.globalPosition().toPoint()
+            rect = QRect(self._start_point_global, self._current_point_global).normalized()
+            self._selecting = False
+            if rect.width() >= 3 and rect.height() >= 3:
+                self.region_selected.emit(rect.left(), rect.top(), rect.width(), rect.height())
+            else:
+                self.selection_canceled.emit()
+            self.close()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.selection_canceled.emit()
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        translucent_black = QColor(0, 0, 0, 120)
+        painter.fillRect(self.rect(), translucent_black)
+
+        if self._selecting and self._start_point_global and self._current_point_global:
+            selection_rect = self._current_selection_rect()
+            highlight_color = QColor(0, 170, 255, 80)
+            border_pen = QPen(QColor(0, 170, 255), 2, Qt.SolidLine)
+
+            painter.fillRect(selection_rect, highlight_color)
+            painter.setPen(border_pen)
+            painter.drawRect(selection_rect)
+
+        # Tájékoztató szöveg
+        info_text = "Bal egér: kijelölés | Jobb egér vagy ESC: megszakítás"
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.drawText(self.rect().adjusted(10, 10, -10, -10), Qt.AlignLeft | Qt.AlignTop, info_text)
 
 
 class CoordCaptureThread(QThread):
@@ -114,6 +204,7 @@ class ManualCoordsWindow(QDialog):
         self.coordinates_data = {}
         self.capture_thread = None
         self.currently_capturing_id = None
+        self.region_selector = None
 
         self._setup_ui()
         self.load_and_display_coords()
@@ -129,6 +220,7 @@ class ManualCoordsWindow(QDialog):
             "3. Vidd az egeret a célalkalmazásban a kívánt gombra/mezőre.<br>"
             "4. Nyomd meg a <b>CTRL</b> (Control) billentyűt a pozíció rögzítéséhez.<br>"
             "5. A koordináták rögzítésre és mentésre kerülnek, az ablakok újra megjelennek.<br>"
+            "6. A 'Generálási státusz terület' gomb esetén húzz egy téglalapot a figyelni kívánt rész köré a megjelenő átlátszó képernyőn.<br>"
             "<i>Megjegyzés: A 'Prompt mező helye' a prompt beviteli mezőre való kattintás helyét jelöli.</i>"
         )
         description_label.setWordWrap(True)
@@ -150,7 +242,7 @@ class ManualCoordsWindow(QDialog):
             {"label_text": "Prompt mező helye:", "id": "prompt_click"},
             {"label_text": "Generálás gomb:", "id": "generate_button_click"},
             {"label_text": "Letöltés gomb:", "id": "download_button_click"},
-            {"label_text": "Generálási státusz pixel:", "id": "generation_status_pixel"}
+            {"label_text": "Generálási státusz terület:", "id": "generation_status_region"}
         ]
 
         for i, definition in enumerate(coord_definitions):
@@ -218,11 +310,15 @@ class ManualCoordsWindow(QDialog):
                     self.coordinates_data = json.load(f)
                 print(f"Manuális koordináták betöltve innen: {self.ui_coords_file}")
             else:
-                self.coordinates_data = {} 
+                self.coordinates_data = {}
                 print(f"Manuális koordináta fájl nem található ({self.ui_coords_file}). Új fájl lesz létrehozva mentéskor.")
         except Exception as e:
             print(f"Hiba a manuális koordináták betöltése közben: {e}")
             self.coordinates_data = {}
+
+        migrated = self._migrate_old_generation_status_keys()
+        if migrated:
+            self._save_coordinates_to_file()
 
         # Alapértelmezett értékek biztosítása a manuális lépésekhez
         if "start_with_browser" not in self.coordinates_data:
@@ -231,14 +327,28 @@ class ManualCoordsWindow(QDialog):
             self.coordinates_data["perform_tool_open_click"] = True
 
         for coord_id, widgets in self.coord_widgets.items():
-            key_x = f"{coord_id}_x"
-            key_y = f"{coord_id}_y"
-            if key_x in self.coordinates_data and key_y in self.coordinates_data:
-                x = self.coordinates_data[key_x]
-                y = self.coordinates_data[key_y]
-                widgets["display_label"].setText(f"X: {x}, Y: {y}")
-            else:
+            if coord_id == "generation_status_region":
+                region = self.coordinates_data.get("generation_status_region")
+                if region and isinstance(region, dict):
+                    left = region.get("left")
+                    top = region.get("top")
+                    width = region.get("width")
+                    height = region.get("height")
+                    if None not in (left, top, width, height):
+                        widgets["display_label"].setText(
+                            f"X: {left}, Y: {top}, Szél: {width}, Mag: {height}"
+                        )
+                        continue
                 widgets["display_label"].setText("Nincs beállítva")
+            else:
+                key_x = f"{coord_id}_x"
+                key_y = f"{coord_id}_y"
+                if key_x in self.coordinates_data and key_y in self.coordinates_data:
+                    x = self.coordinates_data[key_x]
+                    y = self.coordinates_data[key_y]
+                    widgets["display_label"].setText(f"X: {x}, Y: {y}")
+                else:
+                    widgets["display_label"].setText("Nincs beállítva")
 
         # Checkboxok frissítése a fájl alapján (jeleket ideiglenesen letiltva)
         self.start_browser_checkbox.blockSignals(True)
@@ -267,6 +377,11 @@ class ManualCoordsWindow(QDialog):
         self._save_coordinates_to_file()
 
     def initiate_coordinate_capture(self, coord_id_to_capture):
+        if coord_id_to_capture == "generation_status_region":
+            self.currently_capturing_id = coord_id_to_capture
+            self._start_region_selection()
+            return
+
         if not PYNPUT_AVAILABLE:
             if coord_id_to_capture in self.coord_widgets:
                  self.coord_widgets[coord_id_to_capture]["display_label"].setText("Hiba: Könyvtár hiányzik!")
@@ -292,7 +407,7 @@ class ManualCoordsWindow(QDialog):
         
         if captured_coord_id == self.currently_capturing_id and captured_coord_id in self.coord_widgets:
             self.coord_widgets[captured_coord_id]["display_label"].setText(f"X: {x}, Y: {y}")
-            
+
             key_x = f"{captured_coord_id}_x"
             key_y = f"{captured_coord_id}_y"
             self.coordinates_data[key_x] = x
@@ -305,18 +420,102 @@ class ManualCoordsWindow(QDialog):
     @Slot()
     def on_capture_thread_finished_and_restore_windows(self):
         print("ManualCoordsWindow DEBUG: Capture thread finished, ablakok visszaállítása...")
-        if self.parent_main_window:
-            self.parent_main_window.showNormal() 
-            self.parent_main_window.activateWindow()
-        
-        self.showNormal() 
-        self.activateWindow()
-        
-        self.currently_capturing_id = None 
+        self._restore_windows_after_capture()
+        self.currently_capturing_id = None
         if self.capture_thread:
             self.capture_thread.deleteLater()
             self.capture_thread = None
         print("ManualCoordsWindow DEBUG: Ablakok visszaállítva, thread törölve.")
+
+    def _restore_windows_after_capture(self):
+        if self.parent_main_window:
+            self.parent_main_window.showNormal()
+            self.parent_main_window.activateWindow()
+
+        self.showNormal()
+        self.activateWindow()
+
+    def _start_region_selection(self):
+        print("ManualCoordsWindow DEBUG: Generálási státusz terület kijelölése indul.")
+        if self.region_selector:
+            print("ManualCoordsWindow DEBUG: Már aktív régió kiválasztó van.")
+            return
+
+        if self.parent_main_window:
+            self.parent_main_window.hide()
+        self.hide()
+
+        self.region_selector = ScreenRegionSelector()
+        self.region_selector.region_selected.connect(self._on_generation_status_region_selected)
+        self.region_selector.selection_canceled.connect(self._on_generation_status_region_selection_canceled)
+        self.region_selector.showFullScreen()
+        self.region_selector.raise_()
+        self.region_selector.activateWindow()
+
+    @Slot()
+    def _on_generation_status_region_selection_canceled(self):
+        print("ManualCoordsWindow DEBUG: Régió kijelölés megszakítva.")
+        self._cleanup_region_selector()
+        self._restore_windows_after_capture()
+        self.currently_capturing_id = None
+
+    @Slot(int, int, int, int)
+    def _on_generation_status_region_selected(self, left, top, width, height):
+        print(f"ManualCoordsWindow DEBUG: Régió kijelölve - Left:{left}, Top:{top}, Szél:{width}, Mag:{height}")
+        region_data = {
+            "left": int(left),
+            "top": int(top),
+            "width": int(width),
+            "height": int(height)
+        }
+        self.coordinates_data["generation_status_region"] = region_data
+        # Régi pixel-alapú kulcsok eltávolítása, ha léteznek
+        self.coordinates_data.pop("generation_status_pixel_x", None)
+        self.coordinates_data.pop("generation_status_pixel_y", None)
+
+        if "generation_status_region" in self.coord_widgets:
+            self.coord_widgets["generation_status_region"]["display_label"].setText(
+                f"X: {region_data['left']}, Y: {region_data['top']}, Szél: {region_data['width']}, Mag: {region_data['height']}"
+            )
+
+        self._save_coordinates_to_file()
+        self._cleanup_region_selector()
+        self._restore_windows_after_capture()
+        self.currently_capturing_id = None
+
+    def _cleanup_region_selector(self):
+        if self.region_selector:
+            try:
+                self.region_selector.region_selected.disconnect(self._on_generation_status_region_selected)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self.region_selector.selection_canceled.disconnect(self._on_generation_status_region_selection_canceled)
+            except (TypeError, RuntimeError):
+                pass
+            self.region_selector.hide()
+            self.region_selector.deleteLater()
+            self.region_selector = None
+
+    def _migrate_old_generation_status_keys(self):
+        migrated = False
+        if "generation_status_region" not in self.coordinates_data:
+            old_x = self.coordinates_data.get("generation_status_pixel_x")
+            old_y = self.coordinates_data.get("generation_status_pixel_y")
+            if old_x is not None and old_y is not None:
+                try:
+                    migrated_region = {
+                        "left": int(old_x),
+                        "top": int(old_y),
+                        "width": 20,
+                        "height": 20
+                    }
+                except (TypeError, ValueError):
+                    migrated_region = None
+                if migrated_region:
+                    self.coordinates_data["generation_status_region"] = migrated_region
+                    migrated = True
+        return migrated
 
 
     def center_on_screen(self):
@@ -346,6 +545,8 @@ class ManualCoordsWindow(QDialog):
             self.capture_thread.stop_capture()
             if not self.capture_thread.wait(1000):
                 print("Figyelmeztetés: A koordináta rögzítő szál nem állt le időben.")
+        if self.region_selector:
+            self._cleanup_region_selector()
         self._apply_toggle_states_to_data()
         self._save_coordinates_to_file()
         super().closeEvent(event)
