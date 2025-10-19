@@ -176,30 +176,49 @@ class AutomationWorker(QObject):
             print(f"AutomationWorker DEBUG ({mode_text}): [11] _check_pause_and_stop után (Böngésző logika előtt).") 
 
             # --- Böngésző Logika ---
+            browser_launch_enabled = True
+            browser_launch_skipped = False
+
+            if self.manual_mode:
+                manual_settings = gui_automator.coordinates if (gui_automator and isinstance(gui_automator.coordinates, dict)) else {}
+                browser_launch_enabled = bool(manual_settings.get("start_with_browser", True))
+                if not browser_launch_enabled:
+                    browser_launch_skipped = True
+                    skip_msg = f"Worker ({mode_text}): Böngésző automatikus indítása kikapcsolva (manuális beállítás)."
+                    self.status_updated.emit(skip_msg, False)
+                    print(f"AutomationWorker DEBUG ({mode_text}): [11a] {skip_msg}")
+
             browser_opened_successfully = False
-            if browser_manager:
-                print(f"AutomationWorker DEBUG ({mode_text}): [12] Böngésző indítási kísérlet...") 
+            if browser_manager and browser_launch_enabled:
+                print(f"AutomationWorker DEBUG ({mode_text}): [12] Böngésző indítási kísérlet...")
                 self.status_updated.emit(f"Worker ({mode_text}): Böngésző indítása...", False)
                 if browser_manager.open_target_url():
                     browser_opened_successfully = True
-                    print(f"AutomationWorker DEBUG ({mode_text}): [13] Böngésző sikeresen megnyitva. Overlay megjelenítése kérése...") 
-                    self.show_overlay_requested.emit() 
-                    
-                    wait_s = 15 
+                    print(f"AutomationWorker DEBUG ({mode_text}): [13] Böngésző sikeresen megnyitva. Overlay megjelenítése kérése...")
+                    self.show_overlay_requested.emit()
+
+                    wait_s = 15
                     self.status_updated.emit(f"Worker ({mode_text}): Várakozás a böngészőre ({wait_s}s)...", False)
                     for i in range(wait_s):
-                        self._check_pause_and_stop() 
-                        if current_qthread: current_qthread.msleep(1000) 
-                        else: time.sleep(1)
-                        if (i + 1) % 5 == 0 or i == wait_s -1 : 
-                             print(f"AutomationWorker DEBUG ({mode_text}): [13a] Böngésző várakozás... ({wait_s - 1 - i}s hátra)") 
-                             self.status_updated.emit(f"Worker ({mode_text}): Böngésző töltődik... ({wait_s - 1 - i}s)", False)
-                    print(f"AutomationWorker DEBUG ({mode_text}): [14] Böngésző várakozási idő letelt.") 
+                        self._check_pause_and_stop()
+                        if current_qthread:
+                            current_qthread.msleep(1000)
+                        else:
+                            time.sleep(1)
+                        if (i + 1) % 5 == 0 or i == wait_s - 1:
+                            print(f"AutomationWorker DEBUG ({mode_text}): [13a] Böngésző várakozás... ({wait_s - 1 - i}s hátra)")
+                            self.status_updated.emit(f"Worker ({mode_text}): Böngésző töltődik... ({wait_s - 1 - i}s)", False)
+                    print(f"AutomationWorker DEBUG ({mode_text}): [14] Böngésző várakozási idő letelt.")
                 else:
-                    if not self._stop_requested_by_main: 
+                    if not self._stop_requested_by_main:
                         self.status_updated.emit(f"Worker ({mode_text}) Hiba: Böngésző megnyitása sikertelen.", True)
-                    print(f"AutomationWorker DEBUG ({mode_text}): [13b] Böngésző megnyitása sikertelen.") 
-            
+                        print(f"AutomationWorker DEBUG ({mode_text}): [13b] Böngésző megnyitása sikertelen.")
+            elif browser_launch_skipped:
+                browser_opened_successfully = True
+                print(f"AutomationWorker DEBUG ({mode_text}): [12a] Böngésző indítása kihagyva a felhasználói beállítás miatt.")
+            elif not browser_manager:
+                print(f"AutomationWorker DEBUG ({mode_text}): [12b] Nincs BrowserManager, böngésző indítás nem lehetséges.")
+
             self._check_pause_and_stop()
             if not browser_opened_successfully and not self._stop_requested_by_main:
                 self.automation_finished.emit("Böngészőhiba")
