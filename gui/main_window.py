@@ -1,9 +1,9 @@
 # gui/main_window.py
 import os
-from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QApplication, 
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QApplication,
                                QSizePolicy)
 from PySide6.QtCore import Qt, Slot
-from PySide6.QtGui import QScreen, QIcon
+from PySide6.QtGui import QScreen, QIcon, QColor, QPalette
 from .widgets.title_widget import TitleWidget
 from .widgets.prompt_input_widget import PromptInputWidget
 from .widgets.music_player_widget import MusicPlayerWidget
@@ -30,13 +30,14 @@ class MainWindow(QMainWindow):
         except Exception as e: 
             print(f"Hiba történt a programikon beállítása közben: {e}") 
 
-        desired_width = 800 
-        desired_height = 800 
-        self.setGeometry(100, 100, desired_width, desired_height) 
+        desired_width = 800
+        desired_height = 800
+        self.setGeometry(100, 100, desired_width, desired_height)
 
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
+        self._apply_discord_background_theme()
         self.main_layout = QVBoxLayout(self.central_widget)
 
         self._create_widgets()
@@ -47,7 +48,28 @@ class MainWindow(QMainWindow):
         self.center_on_screen()
         print("MainWindow inicializálva és középre igazítva.")
 
-        self.manual_coords_win = None 
+        self.manual_coords_win = None
+
+    def _apply_discord_background_theme(self):
+        """Ensure the GUI always uses a Discord-like dark grey background."""
+        discord_gray = "#2F3136"
+
+        palette = QPalette(self.palette())
+        discord_color = QColor(discord_gray)
+
+        palette.setColor(QPalette.ColorRole.Window, discord_color)
+        palette.setColor(QPalette.ColorRole.Base, discord_color)
+        palette.setColor(QPalette.ColorRole.AlternateBase, discord_color)
+        palette.setColor(QPalette.ColorRole.WindowText, Qt.white)
+        palette.setColor(QPalette.ColorRole.Text, Qt.white)
+        palette.setColor(QPalette.ColorRole.ButtonText, Qt.white)
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#B9BBBE"))
+
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+        self.central_widget.setStyleSheet(
+            f"background-color: {discord_gray}; color: white;"
+        )
 
     def _create_widgets(self): 
         print("Widgetek létrehozása...")
