@@ -28,6 +28,24 @@ class ImageFlowHandler:
     def _check_for_stop_request(self):
         return self.automator._check_for_stop_request()
 
+    def _is_manual_run(self):
+        process_controller = getattr(self.automator, 'process_controller', None)
+        worker = getattr(process_controller, 'worker', None) if process_controller else None
+        if worker and hasattr(worker, 'manual_mode'):
+            return bool(worker.manual_mode)
+        return False
+
+    def _get_current_image_index(self):
+        process_controller = getattr(self.automator, 'process_controller', None)
+        if process_controller and hasattr(process_controller, 'current_image_index'):
+            try:
+                index_value = int(process_controller.current_image_index)
+            except (TypeError, ValueError):
+                return None
+            if index_value > 0:
+                return index_value
+        return None
+
     def _extract_generation_status_region(self):
         region = self.automator.coordinates.get("generation_status_region")
         if isinstance(region, dict):
@@ -51,11 +69,7 @@ class ImageFlowHandler:
             except (TypeError, ValueError):
                 pass
 
-        is_manual_run = False
-        if self.automator.process_controller and self.automator.process_controller.worker:
-            is_manual_run = bool(self.automator.process_controller.worker.manual_mode)
-
-        if is_manual_run:
+        if self._is_manual_run():
             self._notify_status("HIBA (Manuális mód): A manuális koordinátafájl nem tartalmazta a 'generation_status' területet vagy pixelt.", is_error=True)
             return None
 
@@ -230,21 +244,21 @@ class ImageFlowHandler:
 
         self._notify_status(f"Kép elkészült ({completion_source_text}). Letöltés következik...")
 
+        manual_mode_active = self._is_manual_run()
         download_button_x = None
         download_button_y = None
         if "download_button_click_x" in self.automator.coordinates and \
-           "download_button_click_y" in self.automator.coordinates: 
-            download_button_x = self.automator.coordinates["download_button_click_x"] 
-            download_button_y = self.automator.coordinates["download_button_click_y"] 
-            self._notify_status(f"Betöltött letöltés gomb pozíció használata: X={download_button_x}, Y={download_button_y}") 
+           "download_button_click_y" in self.automator.coordinates:
+            download_button_x = self.automator.coordinates["download_button_click_x"]
+            download_button_y = self.automator.coordinates["download_button_click_y"]
+            self._notify_status(f"Betöltött letöltés gomb pozíció használata: X={download_button_x}, Y={download_button_y}")
         else:
-            is_manual_run = self.automator.process_controller.worker.manual_mode if self.automator.process_controller.worker else False
-            if is_manual_run:
+            if manual_mode_active:
                 self._notify_status(f"HIBA (Manuális mód): 'download_button_click' koordináták hiányoznak a manuális fájlból!", is_error=True)
                 return False
             else:
-                download_button_x = 925 
-                download_button_y = 704 
+                download_button_x = 925
+                download_button_y = 704
                 self._notify_status(f"FIGYELEM: Letöltés gomb koordinátái nem voltak betöltve. Fallback pozíció használata: X={download_button_x}, Y={download_button_y}. Ez valószínűleg hiba a koordináták kezelésében!", is_error=True)
 
         self._notify_status(f"Kattintás a letöltés gombra: X={download_button_x}, Y={download_button_y}") 
@@ -260,14 +274,46 @@ class ImageFlowHandler:
             return False
 
         download_confirmation_wait_s = 1
-        # *** JAVÍTÁS ITT: A komment és az 'if' külön sorba került ***
-        # Előzőleg itt volt a hiba: # *** MÓDOSÍTÁS VÉGE *** if download_confirmation_wait_s > 0:                                         
-        if download_confirmation_wait_s > 0:                                         
-            self._notify_status(f"Rövid várakozás ({download_confirmation_wait_s}s) a letöltés elindulására...") 
-            time.sleep(download_confirmation_wait_s)  
-        # *** JAVÍTÁS VÉGE ***
-        
-        self._notify_status("Kép letöltése elindítva (feltételezett).") 
+        manual_wait_duration_s = 0
+        if manual_mode_active:
+            manual_wait_before_typing_s = 2.0
+            manual_wait_before_enter_s = 1.0
+            manual_wait_duration_s = manual_wait_before_typing_s + manual_wait_before_enter_s
+            self._notify_status(
+                f"Manuális mód: Várakozás {manual_wait_before_typing_s:.0f}s a letöltés gomb megnyomása után a képsorszám beviteléhez..."
+            )
+            time.sleep(manual_wait_before_typing_s)
+
+            current_image_index = self._get_current_image_index()
+            if current_image_index is None:
+                self._notify_status("HIBA (Manuális mód): A képsorszám nem érhető el a billentyűzeti bevitelhez.", is_error=True)
+                return False
+
+            try:
+                self._notify_status(f"Manuális mód: Képsorszám '{current_image_index}' bevitele...")
+                pyautogui.typewrite(str(current_image_index))
+                self._notify_status(
+                    f"Manuális mód: Várakozás {manual_wait_before_enter_s:.0f}s az Enter megnyomása előtt..."
+                )
+                time.sleep(manual_wait_before_enter_s)
+                pyautogui.press('enter')
+                self._notify_status("Manuális mód: Képsorszám bevitele sikeres.")
+            except Exception as e_typewrite:
+                self._notify_status(f"Hiba (Manuális mód): A képsorszám bevitele sikertelen: {e_typewrite}", is_error=True)
+                return False
+
+        remaining_confirmation_wait_s = download_confirmation_wait_s
+        if manual_wait_duration_s > 0:
+            remaining_confirmation_wait_s = max(0, download_confirmation_wait_s - manual_wait_duration_s)
+
+        if remaining_confirmation_wait_s > 0:
+            wait_value_for_message = remaining_confirmation_wait_s
+            if isinstance(wait_value_for_message, float) and wait_value_for_message.is_integer():
+                wait_value_for_message = int(wait_value_for_message)
+            self._notify_status(f"Rövid várakozás ({wait_value_for_message}s) a letöltés elindulására...")
+            time.sleep(remaining_confirmation_wait_s)
+
+        self._notify_status("Kép letöltése elindítva (feltételezett).")
         self._notify_status("KÉP FELDOLGOZÁS: Sikeres.") 
         print("ImageFlowHandler DEBUG: monitor_generation_and_download SIKERES.") 
         return True

@@ -324,6 +324,10 @@ class ProcessController(QObject):
         self._stop_requested_by_user = False
         self.settings = {} # Beállítások tárolására
 
+        # Aktuálisan feldolgozott kép sorszámának követése
+        self.current_image_index = 0
+        self.total_images_to_process = 0
+
         self.automation_thread = None
         self.worker = None
         
@@ -467,16 +471,20 @@ class ProcessController(QObject):
             self._update_overlay_progress(current_step, total_steps)
 
     @Slot(int, int)
-    def _handle_worker_image_count_update(self, current_image, total_images): 
+    def _handle_worker_image_count_update(self, current_image, total_images):
+        self.current_image_index = current_image
+        self.total_images_to_process = total_images
         if self.overlay_window:
             self._update_overlay_image_count(current_image, total_images)
 
     @Slot(str)
-    def _handle_automation_finished(self, summary_message): 
+    def _handle_automation_finished(self, summary_message):
         mode_text = "MANUÁLIS" if (self.worker and self.worker.manual_mode) else "AUTOMATIKUS"
         self.update_gui_status(f"{mode_text} automatizálás befejeződött: {summary_message}", False)
         self._is_automation_active = False
         self._stop_requested_by_user = False
+        self.current_image_index = 0
+        self.total_images_to_process = 0
         self._focus_main_window()
 
         if hasattr(self.gui_automator, 'close_browser'):
@@ -520,16 +528,18 @@ class ProcessController(QObject):
             self.overlay_window = None
 
     # *** start_full_automation_process MÓDOSÍTÁSA ***
-    def start_full_automation_process(self, prompt_file_path, start_line, end_line, manual_mode=False): 
+    def start_full_automation_process(self, prompt_file_path, start_line, end_line, manual_mode=False):
         mode_text = "MANUÁLIS" if manual_mode else "AUTOMATIKUS"
         if self._is_automation_active or (self.automation_thread and self.automation_thread.isRunning()):
             self.update_gui_status(f"Egy automatizálási folyamat ({mode_text} mód) már fut!", True)
-            print(f"ProcessController DEBUG ({mode_text}): start_full_automation_process - Már fut, új indítás blokkolva.") 
+            print(f"ProcessController DEBUG ({mode_text}): start_full_automation_process - Már fut, új indítás blokkolva.")
             return
-        
-        print(f"ProcessController DEBUG ({mode_text}): start_full_automation_process hívva, új worker és szál létrehozása.") 
+
+        print(f"ProcessController DEBUG ({mode_text}): start_full_automation_process hívva, új worker és szál létrehozása.")
         self._is_automation_active = True
         self._stop_requested_by_user = False
+        self.current_image_index = 0
+        self.total_images_to_process = 0
 
         self.automation_thread = QThread(self)
         # *** manual_mode ÁTADÁSA A WORKERNEK ***
