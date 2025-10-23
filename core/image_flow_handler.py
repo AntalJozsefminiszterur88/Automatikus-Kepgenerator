@@ -261,24 +261,34 @@ class ImageFlowHandler:
                 download_button_y = 704
                 self._notify_status(f"FIGYELEM: Letöltés gomb koordinátái nem voltak betöltve. Fallback pozíció használata: X={download_button_x}, Y={download_button_y}. Ez valószínűleg hiba a koordináták kezelésében!", is_error=True)
 
-        self._notify_status(f"Kattintás a letöltés gombra: X={download_button_x}, Y={download_button_y}") 
+        self._notify_status(f"Kattintás a letöltés gombra: X={download_button_x}, Y={download_button_y}")
         try:
-            print(f"ImageFlowHandler DEBUG: Kattintás a letöltés gombra: X={download_button_x}, Y={download_button_y}") 
-            pyautogui.moveTo(download_button_x, download_button_y, duration=0.2) 
-            pyautogui.click() 
-            self._notify_status("Letöltés gombra kattintva.") 
-            print("ImageFlowHandler DEBUG: Letöltés gombra kattintás SIKERES.") 
+            print(f"ImageFlowHandler DEBUG: Kattintás a letöltés gombra: X={download_button_x}, Y={download_button_y}")
+            pyautogui.moveTo(download_button_x, download_button_y, duration=0.2)
+            if manual_mode_active:
+                pre_click_wait_s = 0.5
+                self._notify_status(
+                    f"Manuális mód: Várakozás {pre_click_wait_s:.1f}s a letöltés gomb megnyomása előtt..."
+                )
+                time.sleep(pre_click_wait_s)
+            pyautogui.click()
+            self._notify_status("Letöltés gombra kattintva.")
+            print("ImageFlowHandler DEBUG: Letöltés gombra kattintás SIKERES.")
         except Exception as e_click_download:
-            self._notify_status(f"Hiba történt a letöltés gombra való kattintás közben (X:{download_button_x}, Y:{download_button_y}): {e_click_download}", is_error=True) 
-            print(f"ImageFlowHandler DEBUG: Hiba a letöltés gombra kattintáskor: {e_click_download}") 
+            self._notify_status(f"Hiba történt a letöltés gombra való kattintás közben (X:{download_button_x}, Y:{download_button_y}): {e_click_download}", is_error=True)
+            print(f"ImageFlowHandler DEBUG: Hiba a letöltés gombra kattintáskor: {e_click_download}")
             return False
 
         download_confirmation_wait_s = 1
         manual_wait_duration_s = 0
         if manual_mode_active:
-            manual_wait_duration_s = 1.0
-            self._notify_status(f"Manuális mód: Várakozás {manual_wait_duration_s:.0f}s a letöltés gomb megnyomása után a képsorszám beviteléhez...")
-            time.sleep(manual_wait_duration_s)
+            wait_before_typing_s = 1.0
+            wait_before_enter_s = 1.0
+            manual_wait_duration_s = wait_before_typing_s + wait_before_enter_s
+            self._notify_status(
+                f"Manuális mód: Várakozás {wait_before_typing_s:.0f}s a letöltés gomb megnyomása után a képsorszám beviteléhez..."
+            )
+            time.sleep(wait_before_typing_s)
 
             current_image_index = self._get_current_image_index()
             if current_image_index is None:
@@ -288,6 +298,10 @@ class ImageFlowHandler:
             try:
                 self._notify_status(f"Manuális mód: Képsorszám '{current_image_index}' bevitele és Enter lenyomása...")
                 pyautogui.typewrite(str(current_image_index))
+                self._notify_status(
+                    f"Manuális mód: Várakozás {wait_before_enter_s:.0f}s az Enter lenyomása előtt..."
+                )
+                time.sleep(wait_before_enter_s)
                 pyautogui.press('enter')
                 self._notify_status("Manuális mód: Képsorszám bevitele sikeres.")
             except Exception as e_typewrite:
