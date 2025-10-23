@@ -1,7 +1,10 @@
 # core/image_flow_handler.py
 import os
-import pyautogui
+import random
 import time
+
+import pyautogui
+from PIL import ImageChops, ImageStat
 
 class ImageFlowHandler:
     def __init__(self, automator_ref):
@@ -192,8 +195,10 @@ class ImageFlowHandler:
         return False
 
     def _smart_scan_and_click_download(self, region, fallback_x, fallback_y,
-                                       scan_step_fraction=6,
-                                       movement_check_pause_s=0.08,
+                                       movement_detection_timeout_s=10.0,
+                                       movement_probe_window_s=1.5,
+                                       movement_probe_interval_s=0.18,
+                                       change_threshold_ratio=0.01,
                                        icon_search_timeout_s=4.0,
                                        icon_search_interval_s=0.35):
         left, top, width, height = region
@@ -201,41 +206,64 @@ class ImageFlowHandler:
             return False
 
         self._notify_status("Okos letöltés keresés indítása a generálási területen belül...")
-        step_x = max(20, int(width / max(1, scan_step_fraction)))
-        step_y = max(20, int(height / max(1, scan_step_fraction)))
-        bottom = top + height - 1
-
-        previous_frame = None
+        movement_deadline = time.time() + movement_detection_timeout_s
         movement_detected = False
+        last_random_coords = None
 
-        for x in range(left, left + width, step_x):
+        while time.time() < movement_deadline:
             if self._check_for_stop_request():
                 self._notify_status("Okos letöltés keresés megszakítva felhasználói kérésre.", is_error=True)
                 return False
-            for y_offset in range(0, height, step_y):
-                current_y = bottom - y_offset
-                try:
-                    pyautogui.moveTo(x, current_y, duration=0.05)
-                except Exception as move_error:
-                    self._notify_status(
-                        f"Okos letöltés keresés: Hiba az egér mozgatásakor ({x},{current_y}): {move_error}",
-                        is_error=True
-                    )
+
+            random_x = random.randint(left, left + width - 1)
+            random_y = random.randint(top, top + height - 1)
+            last_random_coords = (random_x, random_y)
+            self._notify_status(
+                f"Okos letöltés keresés: Véletlenszerű pozíció vizsgálata ({random_x}, {random_y})."
+            )
+
+            try:
+                pyautogui.moveTo(random_x, random_y, duration=0.08)
+            except Exception as move_error:
+                self._notify_status(
+                    f"Okos letöltés keresés: Hiba az egér mozgatásakor ({random_x},{random_y}): {move_error}",
+                    is_error=True
+                )
+                return False
+
+            time.sleep(movement_probe_interval_s)
+
+            try:
+                reference_image = pyautogui.screenshot(region=(left, top, width, height))
+            except Exception as screen_error:
+                self._notify_status(
+                    f"Okos letöltés keresés: Hiba a terület rögzítésekor: {screen_error}",
+                    is_error=True
+                )
+                return False
+
+            probe_start = time.time()
+            while time.time() - probe_start <= movement_probe_window_s:
+                if self._check_for_stop_request():
+                    self._notify_status("Okos letöltés keresés megszakítva felhasználói kérésre.", is_error=True)
                     return False
-                time.sleep(movement_check_pause_s)
+
+                time.sleep(movement_probe_interval_s)
                 try:
-                    current_frame = pyautogui.screenshot(region=(left, top, width, height)).tobytes()
+                    comparison_image = pyautogui.screenshot(region=(left, top, width, height))
                 except Exception as screen_error:
                     self._notify_status(
                         f"Okos letöltés keresés: Hiba a terület rögzítésekor: {screen_error}",
                         is_error=True
                     )
-                    return False
+                    break
 
-                if previous_frame is not None and current_frame != previous_frame:
+                if self._calculate_change_ratio(reference_image, comparison_image) >= change_threshold_ratio:
                     movement_detected = True
                     break
-                previous_frame = current_frame
+
+                reference_image = comparison_image
+
             if movement_detected:
                 break
 
@@ -243,6 +271,11 @@ class ImageFlowHandler:
             self._notify_status(
                 "Okos letöltés keresés: Nem észleltünk mozgást a területen, fallback koordináták következnek."
             )
+            if last_random_coords:
+                try:
+                    pyautogui.moveTo(last_random_coords[0], last_random_coords[1], duration=0.05)
+                except Exception:
+                    pass
             return False
 
         self._notify_status("Okos letöltés keresés: Mozgás érzékelve. Letöltés ikon keresése a területen belül...")
@@ -299,6 +332,21 @@ class ImageFlowHandler:
             )
             return False
         return False
+
+    @staticmethod
+    def _calculate_change_ratio(reference_image, comparison_image):
+        if not reference_image or not comparison_image:
+            return 0.0
+        if reference_image.size != comparison_image.size:
+            return 0.0
+
+        diff_image = ImageChops.difference(reference_image, comparison_image)
+        stat = ImageStat.Stat(diff_image)
+        total_diff = sum(stat.sum)
+        max_possible = reference_image.size[0] * reference_image.size[1] * 255 * len(reference_image.getbands())
+        if max_possible == 0:
+            return 0.0
+        return total_diff / max_possible
 
     def monitor_generation_and_download(self):
         print("ImageFlowHandler DEBUG: monitor_generation_and_download KEZDÉS.")
