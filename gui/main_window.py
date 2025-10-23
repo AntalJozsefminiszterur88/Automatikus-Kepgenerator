@@ -119,6 +119,8 @@ class MainWindow(QMainWindow):
 
         if hasattr(self.prompt_input_widget, 'file_selected'):
             self.prompt_input_widget.file_selected.connect(self.handle_prompt_file_selected)
+        if hasattr(self.prompt_input_widget, 'line_range_changed'):
+            self.prompt_input_widget.line_range_changed.connect(self.handle_line_range_changed)
 
     def _restore_last_prompt_file(self):
         if not self.process_controller or not hasattr(self.process_controller, 'get_setting'):
@@ -131,6 +133,7 @@ class MainWindow(QMainWindow):
         if os.path.exists(last_file_path) and hasattr(self.prompt_input_widget, 'load_file_if_exists'):
             if self.prompt_input_widget.load_file_if_exists(last_file_path):
                 print(f"Korábban használt prompt fájl visszaállítva: {last_file_path}")
+                self._apply_saved_line_range(last_file_path)
         else:
             print(f"Korábban mentett prompt fájl nem található: {last_file_path}")
             self.process_controller.update_setting("last_prompt_file_path", "")
@@ -222,6 +225,7 @@ class MainWindow(QMainWindow):
 
         if file_path and os.path.exists(file_path):
             self.process_controller.update_setting("last_prompt_file_path", file_path)
+            self._apply_saved_line_range(file_path)
         else:
             self.process_controller.update_setting("last_prompt_file_path", "")
 
@@ -231,6 +235,51 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Állapot: {message}")
         else:
             print(f"[MainWindow KORAI STÁTUSZ - HIBA!]: {message}")
+
+    def _apply_saved_line_range(self, file_path: str):
+        if not file_path or not os.path.exists(file_path):
+            return
+
+        if not self.process_controller or not hasattr(self.process_controller, 'get_setting'):
+            return
+
+        saved_ranges = self.process_controller.get_setting("prompt_line_ranges", {})
+        if not isinstance(saved_ranges, dict):
+            return
+
+        saved_range = saved_ranges.get(file_path)
+        if not isinstance(saved_range, dict):
+            return
+
+        start_line = saved_range.get("start")
+        end_line = saved_range.get("end")
+
+        if hasattr(self.prompt_input_widget, 'apply_saved_line_range'):
+            self.prompt_input_widget.apply_saved_line_range(start_line, end_line)
+
+    @Slot(int, int)
+    def handle_line_range_changed(self, start_line: int, end_line: int):
+        if not self.process_controller or not hasattr(self.process_controller, 'update_setting'):
+            return
+
+        if not hasattr(self.prompt_input_widget, 'get_file_path'):
+            return
+
+        file_path = self.prompt_input_widget.get_file_path()
+        if not file_path or not os.path.exists(file_path):
+            return
+
+        saved_ranges = self.process_controller.get_setting("prompt_line_ranges", {})
+        if not isinstance(saved_ranges, dict):
+            saved_ranges = {}
+
+        current_range = saved_ranges.get(file_path)
+        if isinstance(current_range, dict) and current_range.get("start") == start_line and current_range.get("end") == end_line:
+            return
+
+        updated_ranges = dict(saved_ranges)
+        updated_ranges[file_path] = {"start": start_line, "end": end_line}
+        self.process_controller.update_setting("prompt_line_ranges", updated_ranges)
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key_Escape and self.process_controller:

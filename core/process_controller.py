@@ -361,7 +361,8 @@ class ProcessController(QObject):
             "vpn_target_server_group": "Singapore",
             "vpn_target_country_code": "SG",
             "launch_vpn_on_startup": True,
-            "last_prompt_file_path": ""
+            "last_prompt_file_path": "",
+            "prompt_line_ranges": {}
             # Ide jöhetnek további alapértelmezett értékek
         }
         try:
