@@ -12,6 +12,7 @@ class PromptInputWidget(QWidget):
     # *** ÚJ SIGNAL VÉGE ***
     vpn_autostart_changed = Signal(bool)
     file_selected = Signal(str)
+    line_range_changed = Signal(int, int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,13 +36,13 @@ class PromptInputWidget(QWidget):
         self.start_line_spinbox = QSpinBox()
         self.start_line_spinbox.setMinimum(1)
         self.start_line_spinbox.setValue(1)
-        self.start_line_spinbox.valueChanged.connect(self._ensure_value_constraints)
+        self.start_line_spinbox.valueChanged.connect(self._handle_line_spinbox_changed)
 
         self.end_line_label = QLabel("Befejező sor (meddig):")
         self.end_line_spinbox = QSpinBox()
         self.end_line_spinbox.setMinimum(1)
         self.end_line_spinbox.setValue(10)
-        self.end_line_spinbox.valueChanged.connect(self._ensure_value_constraints)
+        self.end_line_spinbox.valueChanged.connect(self._handle_line_spinbox_changed)
 
         line_layout = QHBoxLayout()
         line_layout.addWidget(self.start_line_label)
@@ -240,6 +241,10 @@ class PromptInputWidget(QWidget):
         self.start_line_spinbox.blockSignals(False)
         self.end_line_spinbox.blockSignals(False)
 
+    def _handle_line_spinbox_changed(self, _value):
+        self._ensure_value_constraints()
+        self.line_range_changed.emit(self.get_start_line(), self.get_end_line())
+
     def _ensure_value_constraints(self):
         sender_widget = self.sender()
         if sender_widget not in [self.start_line_spinbox, self.end_line_spinbox]:
@@ -270,3 +275,27 @@ class PromptInputWidget(QWidget):
 
     def get_end_line(self):
         return self.end_line_spinbox.value()
+
+    def apply_saved_line_range(self, start_line: int, end_line: int):
+        if not isinstance(start_line, int) or not isinstance(end_line, int):
+            return
+
+        min_start = self.start_line_spinbox.minimum()
+        max_start = self.start_line_spinbox.maximum()
+        min_end = self.end_line_spinbox.minimum()
+        max_end = self.end_line_spinbox.maximum()
+
+        start_value = max(min_start, min(start_line, max_start))
+        end_value = max(min_end, min(end_line, max_end))
+
+        if end_value < start_value:
+            end_value = start_value
+
+        self.start_line_spinbox.blockSignals(True)
+        self.end_line_spinbox.blockSignals(True)
+        self.start_line_spinbox.setValue(start_value)
+        self.end_line_spinbox.setValue(end_value)
+        self.start_line_spinbox.blockSignals(False)
+        self.end_line_spinbox.blockSignals(False)
+
+        self.line_range_changed.emit(self.get_start_line(), self.get_end_line())
