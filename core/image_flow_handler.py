@@ -1,7 +1,7 @@
 # core/image_flow_handler.py
+import os
 import pyautogui
 import time
-# import os
 
 class ImageFlowHandler:
     def __init__(self, automator_ref):
@@ -271,7 +271,50 @@ class ImageFlowHandler:
                     f"Manuális mód: Várakozás {pre_click_wait_s:.1f}s a letöltés gomb megnyomása előtt..."
                 )
                 time.sleep(pre_click_wait_s)
-            pyautogui.click()
+            click_completed = False
+            if manual_mode_active:
+                icon_search_timeout_s = 5
+                icon_search_interval_s = 0.5
+                icon_path = os.path.join(os.path.dirname(__file__), "..", "utils", "letoltes ikon.png")
+                icon_path = os.path.abspath(icon_path)
+                if os.path.exists(icon_path):
+                    self._notify_status(
+                        f"Manuális mód: Letöltés ikon keresése a képernyőn (max {icon_search_timeout_s}s)..."
+                    )
+                    search_start = time.time()
+                    while time.time() - search_start <= icon_search_timeout_s:
+                        if self._check_for_stop_request():
+                            print("ImageFlowHandler DEBUG: Stop kérés a letöltés ikon keresése közben.")
+                            return False
+                        try:
+                            icon_location = pyautogui.locateOnScreen(icon_path)
+                        except Exception as locate_error:
+                            print(
+                                "ImageFlowHandler DEBUG: Hiba a letöltés ikon keresése közben:",
+                                locate_error,
+                            )
+                            icon_location = None
+                        if icon_location:
+                            icon_center = pyautogui.center(icon_location)
+                            self._notify_status(
+                                f"Manuális mód: Letöltés ikon megtalálva a képernyőn: X={icon_center.x}, Y={icon_center.y}."
+                            )
+                            pyautogui.moveTo(icon_center.x, icon_center.y, duration=0.15)
+                            pyautogui.click()
+                            click_completed = True
+                            break
+                        time.sleep(icon_search_interval_s)
+                    if not click_completed:
+                        self._notify_status(
+                            "Manuális mód: Letöltés ikon nem található 5s alatt, fallback koordináták használata."
+                        )
+                else:
+                    self._notify_status(
+                        "Manuális mód: Letöltés ikon képe nem található a projektben (utils/letoltes ikon.png). Fallback koordináták használata.",
+                        is_error=True,
+                    )
+            if not click_completed:
+                pyautogui.click()
             self._notify_status("Letöltés gombra kattintva.")
             print("ImageFlowHandler DEBUG: Letöltés gombra kattintás SIKERES.")
         except Exception as e_click_download:
