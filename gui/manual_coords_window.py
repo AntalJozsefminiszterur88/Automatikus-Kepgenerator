@@ -290,6 +290,14 @@ class ManualCoordsWindow(QDialog):
         )
         toggle_container.addWidget(self.perform_tool_open_checkbox)
 
+        self.perform_download_checkbox = QCheckBox(
+            "Végezze el automatikusan a 'Letöltés' gomb kattintását"
+        )
+        self.perform_download_checkbox.toggled.connect(
+            lambda checked: self._on_toggle_changed("perform_download_click", checked)
+        )
+        toggle_container.addWidget(self.perform_download_checkbox)
+
         note_label = QLabel(
             "<i>Ha bármelyik lépést kikapcsolod, a folyamat azt a részt kihagyja és a következő művelettel folytatódik.</i>"
         )
@@ -325,6 +333,8 @@ class ManualCoordsWindow(QDialog):
             self.coordinates_data["start_with_browser"] = True
         if "perform_tool_open_click" not in self.coordinates_data:
             self.coordinates_data["perform_tool_open_click"] = True
+        if "perform_download_click" not in self.coordinates_data:
+            self.coordinates_data["perform_download_click"] = True
 
         for coord_id, widgets in self.coord_widgets.items():
             if coord_id == "generation_status_region":
@@ -359,6 +369,10 @@ class ManualCoordsWindow(QDialog):
         self.perform_tool_open_checkbox.setChecked(bool(self.coordinates_data.get("perform_tool_open_click", True)))
         self.perform_tool_open_checkbox.blockSignals(False)
 
+        self.perform_download_checkbox.blockSignals(True)
+        self.perform_download_checkbox.setChecked(bool(self.coordinates_data.get("perform_download_click", True)))
+        self.perform_download_checkbox.blockSignals(False)
+
     def _save_coordinates_to_file(self):
         try:
             os.makedirs(self.config_dir, exist_ok=True)
@@ -371,6 +385,7 @@ class ManualCoordsWindow(QDialog):
     def _apply_toggle_states_to_data(self):
         self.coordinates_data["start_with_browser"] = bool(self.start_browser_checkbox.isChecked())
         self.coordinates_data["perform_tool_open_click"] = bool(self.perform_tool_open_checkbox.isChecked())
+        self.coordinates_data["perform_download_click"] = bool(self.perform_download_checkbox.isChecked())
 
     def _on_toggle_changed(self, key, checked):
         self.coordinates_data[key] = bool(checked)
