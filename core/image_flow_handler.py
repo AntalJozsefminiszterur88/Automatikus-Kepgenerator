@@ -402,6 +402,15 @@ class ImageFlowHandler:
         self._notify_status(f"Kép elkészült ({completion_source_text}). Letöltés következik...")
 
         manual_mode_active = self._is_manual_run()
+        manual_download_enabled = True
+        if manual_mode_active:
+            manual_download_enabled = bool(self.automator.coordinates.get("perform_download_click", True))
+            if not manual_download_enabled:
+                self._notify_status(
+                    "Manuális mód: Letöltés gomb megnyomása kihagyva a beállítás alapján. Következő prompt következik..."
+                )
+                return True
+
         download_button_x = None
         download_button_y = None
         if "download_button_click_x" in self.automator.coordinates and \
